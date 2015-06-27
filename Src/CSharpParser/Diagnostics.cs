@@ -6,6 +6,8 @@ namespace CSharpParser {
     public enum DiagCode {
         None = 0,
         Parsing = -1000,
+
+        //del
         UriReserved,
         AliasReserved,
         DuplicateAlias,

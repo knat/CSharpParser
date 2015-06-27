@@ -52,6 +52,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ParserBase.cs" />
     <Compile Include="Diagnostics.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="Lexer.cs" />
