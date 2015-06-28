@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.CodeAnalysis.CSharp;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -45,6 +46,7 @@ namespace CSharpParser {
                 return TokenKind == TokenKind.VerbatimIdentifier;
             }
         }
+
         public bool IsEndOfFile {
             get {
                 return Kind == char.MaxValue;
@@ -103,8 +105,8 @@ namespace CSharpParser {
         private static Lexer Instance {
             get { return _instance ?? (_instance = new Lexer()); }
         }
-        public static Lexer Get(string filePath, TextReader reader, DiagContext diagCtx, IEnumerable<string> ppSymbols) {
-            return Instance.Set(filePath, reader, diagCtx, ppSymbols);
+        public static Lexer Get(string filePath, TextReader reader, Context context, IEnumerable<string> ppSymbols) {
+            return Instance.Set(filePath, reader, context, ppSymbols);
         }
         private Lexer() {
             _buf = new char[_bufLength];
@@ -112,7 +114,7 @@ namespace CSharpParser {
         //inputs
         private string _filePath;
         private TextReader _reader;
-        private DiagContext _diagCtx;
+        private Context _context;
         private IEnumerable<string> _ppSymbols;
         private HashSet<string> _ppSymbolSet;
         private HashSet<string> PpSymbolSet {
@@ -140,14 +142,14 @@ namespace CSharpParser {
         }
         private Token? _ppExprToken;
 
-        private Lexer Set(string filePath, TextReader reader, DiagContext diagCtx, IEnumerable<string> ppSymbols) {
+        private Lexer Set(string filePath, TextReader reader, Context context, IEnumerable<string> ppSymbols) {
             if (filePath == null) throw new ArgumentNullException("filePath");
             if (reader == null) throw new ArgumentNullException("reader");
-            if (diagCtx == null) throw new ArgumentNullException("diagCtx");
+            if (context == null) throw new ArgumentNullException("context");
             if (ppSymbols == null) throw new ArgumentNullException("ppSymbols");
             _filePath = filePath;
             _reader = reader;
-            _diagCtx = diagCtx;
+            _context = context;
             _ppSymbols = ppSymbols;
             _index = _count = 0;
             _isEOF = false;
@@ -165,7 +167,7 @@ namespace CSharpParser {
         public void Clear() {
             _filePath = null;
             _reader = null;
-            _diagCtx = null;
+            _context = null;
             _ppSymbols = null;
             _ppSymbolSet = null;
             if (_stringBuilder != null && _stringBuilder.Capacity > _stringBuilderCapacity * 8) {
@@ -212,7 +214,7 @@ namespace CSharpParser {
             if (_index < _count) {
                 var ch = _buf[_index++];
                 ++_totalIndex;
-                if (IsNewLine(ch)) {
+                if (SyntaxFacts.IsNewLine(ch)) {
                     if (ch == '\r' && GetChar() == '\n') {
                         ++_index;
                         ++_totalIndex;
@@ -252,8 +254,8 @@ namespace CSharpParser {
             return token;
         }
         private void ErrorAndThrow(string errMsg, TextSpan textSpan) {
-            _diagCtx.AddDiag(DiagSeverity.Error, (int)DiagCode.Parsing, errMsg, textSpan);
-            throw DiagContext.DiagExceptionObject;
+            _context.AddDiag(DiagSeverity.Error, (int)DiagCode.Parsing, errMsg, textSpan);
+            throw ParsingException.Instance;
         }
         private void ErrorAndThrow(string errMsg) {
             ErrorAndThrow(errMsg, CreateTextSpan());
@@ -275,7 +277,7 @@ namespace CSharpParser {
             InNumericValueFraction,
             InNumericValueExponent,
         }
-        protected enum PpConditionKind : byte {
+        private enum PpConditionKind : byte {
             If,
             Elif,
             Else,
@@ -298,94 +300,96 @@ namespace CSharpParser {
                     tokenKind == TokenKind.SingleLineComment || tokenKind == TokenKind.MultiLineComment) {
                     continue;
                 }
-                if (tokenKind == TokenKind.PpHash) {
-                    token = GetNonWhitespaceToken();
-                    tokenKind = token.TokenKind;
-                    if (tokenKind != TokenKind.Identifier) {
-                        ErrorAndThrow("Identifier expected.", token.TextSpan);
-                    }
-                    var ppDirective = token.Value;
-                    var isRegion = ppDirective == "region";
-                    var isEndRegion = ppDirective == "endregion";
-                    if (isRegion || isEndRegion) {
-                        GetTokenCore(StateKind.InPpRegionComment);
-                    }
-                    else {
-                        var isDefine = ppDirective == "define";
-                        var isUndef = ppDirective == "undef";
-                        if (isDefine || isUndef) {
-                            if (_getNonTrivalToken) {
-                                ErrorAndThrow("Cannot define/undefine preprocessor symbols after first token in file.", token.TextSpan);
-                            }
-                            if (isDefine) {
-                                PpSymbolSet.Add(ppDirective);
-                            }
-                            else {
-                                PpSymbolSet.Remove(ppDirective);
-                            }
-                        }
-                        else {
-                            bool value;
-                            var stack = PpConditionStack;
-                            if (ppDirective == "if") {
-                                stack.Push(new PpCondition(PpConditionKind.If, value = PpExpression()));
-                            }
-                            else if (ppDirective == "elif") {
-                                if (stack.Count == 0 || stack.Peek().Kind == PpConditionKind.Else) {
-                                    ErrorAndThrow("Unexpected #elif.", token.TextSpan);
-                                }
-                                stack.Pop();
-                                stack.Push(new PpCondition(PpConditionKind.Elif, value = PpExpression()));
-                            }
-                            else if (ppDirective == "else") {
-                                if (stack.Count == 0 || stack.Peek().Kind == PpConditionKind.Else) {
-                                    ErrorAndThrow("Unexpected #else.", token.TextSpan);
-                                }
-                                stack.Push(new PpCondition(PpConditionKind.Else, value = !stack.Pop().Value));
-                            }
-                            else if (ppDirective == "endif") {
-                                if (stack.Count == 0) {
-                                    ErrorAndThrow("Unexpected #endif.", token.TextSpan);
-                                }
-                                stack.Pop();
-                                value = true;
-                            }
-                            else {
-                                ErrorAndThrow("Invalid preprocessor directive.", token.TextSpan);
-                                value = false;
-                            }
-                            if (stack.Count > 0) {
-                                value = stack.Peek().Value && value;
-                            }
-                            if (_ppExprToken != null) {
-                                token = _ppExprToken.Value;
-                                _ppExprToken = null;
-                                if (token.IsWhitespace) {
-                                    token = GetTokenCore();
-                                }
-                            }
-                            else {
-                                token = GetNonWhitespaceToken();
-                            }
-                            if (token.TokenKind == TokenKind.SingleLineComment) {
-                                token = GetTokenCore();
-                            }
-                            if (!token.IsNewLine || !token.IsEndOfFile) {
-                                ErrorAndThrow("Single-line comment or end-of-line expected.", token.TextSpan);
-                            }
-                            if (!value) {
-                                GetTokenCore(StateKind.InPpFalseConditionBlock);
-                            }
-
-                        }
-                    }
-                    continue;
-
-
-
+                if (tokenKind != TokenKind.PpHash) {
+                    _getNonTrivalToken = true;
+                    return token;
                 }
-                //_getNonTrivalToken = true;
-                return token;
+                token = GetNonWhitespaceToken();
+                if (!token.IsIdentifier) {
+                    ErrorAndThrow("Identifier expected.", token.TextSpan);
+                }
+                var ppDirective = token.Value;
+                if (ppDirective == "region") {
+                    ++_ppRegionCount;
+                    GetTokenCore(StateKind.InPpRegionComment);
+                    continue;
+                }
+                if (ppDirective == "endregion") {
+                    if (--_ppRegionCount < 0) {
+                        ErrorAndThrow("Unexpected #endregion.", token.TextSpan);
+                    }
+                    GetTokenCore(StateKind.InPpRegionComment);
+                    continue;
+                }
+                if (ppDirective == "define") {
+                    if (_getNonTrivalToken) {
+                        ErrorAndThrow("Unexpected #define.", token.TextSpan);
+                    }
+                    PpSymbolSet.Add(ppDirective);
+                    continue;
+                }
+                if (ppDirective == "undef") {
+                    if (_getNonTrivalToken) {
+                        ErrorAndThrow("Unexpected #undef.", token.TextSpan);
+                    }
+                    PpSymbolSet.Remove(ppDirective);
+                    continue;
+                }
+                //
+                _getNonTrivalToken = true;
+                bool conditionValue;
+                var stack = PpConditionStack;
+                if (ppDirective == "if") {
+                    stack.Push(new PpCondition(PpConditionKind.If, conditionValue = PpExpression()));
+                }
+                else if (ppDirective == "elif") {
+                    if (stack.Count == 0 || stack.Peek().Kind == PpConditionKind.Else) {
+                        ErrorAndThrow("Unexpected #elif.", token.TextSpan);
+                    }
+                    stack.Pop();
+                    stack.Push(new PpCondition(PpConditionKind.Elif, conditionValue = PpExpression()));
+                }
+                else if (ppDirective == "else") {
+                    if (stack.Count == 0 || stack.Peek().Kind == PpConditionKind.Else) {
+                        ErrorAndThrow("Unexpected #else.", token.TextSpan);
+                    }
+                    stack.Push(new PpCondition(PpConditionKind.Else, conditionValue = !stack.Pop().Value));
+                }
+                else if (ppDirective == "endif") {
+                    if (stack.Count == 0) {
+                        ErrorAndThrow("Unexpected #endif.", token.TextSpan);
+                    }
+                    stack.Pop();
+                    conditionValue = true;
+                }
+                else {
+                    ErrorAndThrow("Invalid preprocessor directive.", token.TextSpan);
+                    conditionValue = false;
+                }
+                if (stack.Count > 0) {
+                    conditionValue = stack.Peek().Value && conditionValue;
+                }
+                if (_ppExprToken != null) {
+                    token = _ppExprToken.Value;
+                    _ppExprToken = null;
+                    if (token.IsWhitespace) {
+                        token = GetTokenCore();
+                    }
+                }
+                else {
+                    token = GetNonWhitespaceToken();
+                }
+                if (token.TokenKind == TokenKind.SingleLineComment) {
+                    token = GetTokenCore();
+                }
+                if (!token.IsNewLine || !token.IsEndOfFile) {
+                    ErrorAndThrow("Single-line comment or end-of-line expected.", token.TextSpan);
+                }
+                if (!conditionValue) {
+                    GetTokenCore(StateKind.InPpFalseConditionBlock);
+                }
+
+
             }
         }
         private bool PpExpression() {
@@ -444,7 +448,14 @@ namespace CSharpParser {
             var tokenKind = token.Kind;
             if (tokenKind == (int)TokenKind.Identifier) {
                 ConsumePpExprToken();
-                return PpSymbolSet.Contains(token.Value);
+                var text = token.Value;
+                if (text == "true") {
+                    return true;
+                }
+                if (text == "false") {
+                    return false;
+                }
+                return PpSymbolSet.Contains(text);
             }
             if (tokenKind == '(') {
                 ConsumePpExprToken();
@@ -478,7 +489,7 @@ namespace CSharpParser {
             while (true) {
                 var ch = GetChar();
                 if (stateKind == StateKind.InWhitespace) {
-                    if (IsWhitespace(ch)) {
+                    if (SyntaxFacts.IsWhitespace(ch)) {
                         AdvanceChar();
                     }
                     else {
@@ -486,7 +497,7 @@ namespace CSharpParser {
                     }
                 }
                 else if (stateKind == StateKind.InNewLine) {
-                    if (IsNewLine(ch)) {
+                    if (SyntaxFacts.IsNewLine(ch)) {
                         AdvanceChar();
                     }
                     else {
@@ -494,7 +505,7 @@ namespace CSharpParser {
                     }
                 }
                 else if (stateKind == StateKind.InSingleLineComment) {
-                    if (IsNewLine(ch) || ch == char.MaxValue) {
+                    if (SyntaxFacts.IsNewLine(ch) || ch == char.MaxValue) {
                         return CreateToken(TokenKind.SingleLineComment);
                     }
                     else {
@@ -502,7 +513,7 @@ namespace CSharpParser {
                     }
                 }
                 else if (stateKind == StateKind.InPpRegionComment) {
-                    if (IsNewLine(ch) || ch == char.MaxValue) {
+                    if (SyntaxFacts.IsNewLine(ch) || ch == char.MaxValue) {
                         return default(Token);
                     }
                     else {
@@ -513,10 +524,10 @@ namespace CSharpParser {
                     if (ch == '#' && _isNewWhitespaceLine || ch == char.MaxValue) {
                         return default(Token);
                     }
-                    if (IsNewLine(ch)) {
+                    if (SyntaxFacts.IsNewLine(ch)) {
                         _isNewWhitespaceLine = true;
                     }
-                    else if (!IsWhitespace(ch)) {
+                    else if (!SyntaxFacts.IsWhitespace(ch)) {
                         _isNewWhitespaceLine = false;
                     }
                     AdvanceChar();
@@ -538,7 +549,7 @@ namespace CSharpParser {
                     }
                 }
                 else if (stateKind == StateKind.InIdentifier || stateKind == StateKind.InVerbatimIdentifier) {
-                    if (IsNamePartChar(ch)) {
+                    if (SyntaxFacts.IsIdentifierPartCharacter(ch)) {
                         sb.Append(ch);
                         AdvanceChar();
                     }
@@ -555,7 +566,7 @@ namespace CSharpParser {
                         AdvanceChar();
                         return CreateToken(TokenKind.String, sb.ToString());
                     }
-                    else if (IsNewLine(ch) || ch == char.MaxValue) {
+                    else if (SyntaxFacts.IsNewLine(ch) || ch == char.MaxValue) {
                         ErrorAndThrow("\" expected.");
                     }
                     else {
@@ -597,7 +608,7 @@ namespace CSharpParser {
                             ErrorAndThrow("Character expected.");
                         }
                     }
-                    else if (IsNewLine(ch) || ch == char.MaxValue) {
+                    else if (SyntaxFacts.IsNewLine(ch) || ch == char.MaxValue) {
                         ErrorAndThrow("' expected.");
                     }
                     else {
@@ -692,12 +703,12 @@ namespace CSharpParser {
                 else if (ch == char.MaxValue) {
                     return CreateTokenAndAdvanceChar(ch);
                 }
-                else if (IsWhitespace(ch)) {
+                else if (SyntaxFacts.IsWhitespace(ch)) {
                     stateKind = StateKind.InWhitespace;
                     MarkTokenStart();
                     AdvanceChar();
                 }
-                else if (IsNewLine(ch)) {
+                else if (SyntaxFacts.IsNewLine(ch)) {
                     stateKind = StateKind.InNewLine;
                     MarkTokenStart();
                     AdvanceChar();
@@ -735,7 +746,7 @@ namespace CSharpParser {
                         AdvanceChar();
                         sb = GetStringBuilder();
                     }
-                    else if (IsNameStartChar(nextch)) {
+                    else if (SyntaxFacts.IsIdentifierStartCharacter(nextch)) {
                         stateKind = StateKind.InVerbatimIdentifier;
                         MarkTokenStart();
                         AdvanceChar();
@@ -747,7 +758,7 @@ namespace CSharpParser {
                         return CreateTokenAndAdvanceChar(ch);
                     }
                 }
-                else if (IsNameStartChar(ch)) {
+                else if (SyntaxFacts.IsIdentifierStartCharacter(ch)) {
                     stateKind = StateKind.InIdentifier;
                     MarkTokenStart();
                     AdvanceChar();
@@ -1057,23 +1068,23 @@ namespace CSharpParser {
         }
 
         #region helpers
-        private static bool IsNewLine(char ch) {
-            return ch == '\r'
-                || ch == '\n'
-                || ch == '\u0085'
-                || ch == '\u2028'
-                || ch == '\u2029';
-        }
-        private static bool IsWhitespace(char ch) {
-            return ch == ' '
-                || ch == '\t'
-                || ch == '\v'
-                || ch == '\f'
-                || ch == '\u00A0'
-                || ch == '\uFEFF'
-                || ch == '\u001A'
-                || (ch > 255 && CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.SpaceSeparator);
-        }
+        //private static bool IsNewLine(char ch) {
+        //    return ch == '\r'
+        //        || ch == '\n'
+        //        || ch == '\u0085'
+        //        || ch == '\u2028'
+        //        || ch == '\u2029';
+        //}
+        //private static bool IsWhitespace(char ch) {
+        //    return ch == ' '
+        //        || ch == '\t'
+        //        || ch == '\v'
+        //        || ch == '\f'
+        //        || ch == '\u00A0'
+        //        || ch == '\uFEFF'
+        //        || ch == '\u001A'
+        //        || (ch > 255 && CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.SpaceSeparator);
+        //}
         private static bool IsDecDigit(char ch) {
             return ch >= '0' && ch <= '9';
         }
@@ -1089,122 +1100,122 @@ namespace CSharpParser {
             return (ch >= '0' && ch <= '9') ? ch - '0' : (ch & 0xdf) - 'A' + 10;
         }
 
-        public static bool IsNameStartChar(char ch) {
-            // identifier-start-character:
-            //   letter-character
-            //   _ (the underscore character U+005F)
+        //public static bool IsIdentifierStartCharacter(char ch) {
+        //    // identifier-start-character:
+        //    //   letter-character
+        //    //   _ (the underscore character U+005F)
 
-            if (ch < 'a') // '\u0061'
-            {
-                if (ch < 'A') // '\u0041'
-                {
-                    return false;
-                }
+        //    if (ch < 'a') // '\u0061'
+        //    {
+        //        if (ch < 'A') // '\u0041'
+        //        {
+        //            return false;
+        //        }
 
-                return ch <= 'Z'  // '\u005A'
-                    || ch == '_'; // '\u005F'
-            }
+        //        return ch <= 'Z'  // '\u005A'
+        //            || ch == '_'; // '\u005F'
+        //    }
 
-            if (ch <= 'z') // '\u007A'
-            {
-                return true;
-            }
+        //    if (ch <= 'z') // '\u007A'
+        //    {
+        //        return true;
+        //    }
 
-            if (ch <= '\u007F') // max ASCII
-            {
-                return false;
-            }
+        //    if (ch <= '\u007F') // max ASCII
+        //    {
+        //        return false;
+        //    }
 
-            return IsLetterChar(CharUnicodeInfo.GetUnicodeCategory(ch));
-        }
-        public static bool IsNamePartChar(char ch) {
-            // identifier-part-character:
-            //   letter-character
-            //   decimal-digit-character
-            //   connecting-character
-            //   combining-character
-            //   formatting-character
+        //    return IsLetterChar(CharUnicodeInfo.GetUnicodeCategory(ch));
+        //}
+        //public static bool IsIdentifierPartCharacter(char ch) {
+        //    // identifier-part-character:
+        //    //   letter-character
+        //    //   decimal-digit-character
+        //    //   connecting-character
+        //    //   combining-character
+        //    //   formatting-character
 
-            if (ch < 'a') // '\u0061'
-            {
-                if (ch < 'A') // '\u0041'
-                {
-                    return ch >= '0'  // '\u0030'
-                        && ch <= '9'; // '\u0039'
-                }
+        //    if (ch < 'a') // '\u0061'
+        //    {
+        //        if (ch < 'A') // '\u0041'
+        //        {
+        //            return ch >= '0'  // '\u0030'
+        //                && ch <= '9'; // '\u0039'
+        //        }
 
-                return ch <= 'Z'  // '\u005A'
-                    || ch == '_'; // '\u005F'
-            }
+        //        return ch <= 'Z'  // '\u005A'
+        //            || ch == '_'; // '\u005F'
+        //    }
 
-            if (ch <= 'z') // '\u007A'
-            {
-                return true;
-            }
+        //    if (ch <= 'z') // '\u007A'
+        //    {
+        //        return true;
+        //    }
 
-            if (ch <= '\u007F') // max ASCII
-            {
-                return false;
-            }
+        //    if (ch <= '\u007F') // max ASCII
+        //    {
+        //        return false;
+        //    }
 
-            UnicodeCategory cat = CharUnicodeInfo.GetUnicodeCategory(ch);
-            return IsLetterChar(cat)
-                || IsDecimalDigitChar(cat)
-                || IsConnectingChar(cat)
-                || IsCombiningChar(cat)
-                || IsFormattingChar(cat);
-        }
-        private static bool IsLetterChar(UnicodeCategory cat) {
-            // letter-character:
-            //   A Unicode character of classes Lu, Ll, Lt, Lm, Lo, or Nl 
-            //   A Unicode-escape-sequence representing a character of classes Lu, Ll, Lt, Lm, Lo, or Nl
+        //    UnicodeCategory cat = CharUnicodeInfo.GetUnicodeCategory(ch);
+        //    return IsLetterChar(cat)
+        //        || IsDecimalDigitChar(cat)
+        //        || IsConnectingChar(cat)
+        //        || IsCombiningChar(cat)
+        //        || IsFormattingChar(cat);
+        //}
+        //private static bool IsLetterChar(UnicodeCategory cat) {
+        //    // letter-character:
+        //    //   A Unicode character of classes Lu, Ll, Lt, Lm, Lo, or Nl 
+        //    //   A Unicode-escape-sequence representing a character of classes Lu, Ll, Lt, Lm, Lo, or Nl
 
-            switch (cat) {
-                case UnicodeCategory.UppercaseLetter:
-                case UnicodeCategory.LowercaseLetter:
-                case UnicodeCategory.TitlecaseLetter:
-                case UnicodeCategory.ModifierLetter:
-                case UnicodeCategory.OtherLetter:
-                case UnicodeCategory.LetterNumber:
-                    return true;
-            }
+        //    switch (cat) {
+        //        case UnicodeCategory.UppercaseLetter:
+        //        case UnicodeCategory.LowercaseLetter:
+        //        case UnicodeCategory.TitlecaseLetter:
+        //        case UnicodeCategory.ModifierLetter:
+        //        case UnicodeCategory.OtherLetter:
+        //        case UnicodeCategory.LetterNumber:
+        //            return true;
+        //    }
 
-            return false;
-        }
-        private static bool IsCombiningChar(UnicodeCategory cat) {
-            // combining-character:
-            //   A Unicode character of classes Mn or Mc 
-            //   A Unicode-escape-sequence representing a character of classes Mn or Mc
+        //    return false;
+        //}
+        //private static bool IsCombiningChar(UnicodeCategory cat) {
+        //    // combining-character:
+        //    //   A Unicode character of classes Mn or Mc 
+        //    //   A Unicode-escape-sequence representing a character of classes Mn or Mc
 
-            switch (cat) {
-                case UnicodeCategory.NonSpacingMark:
-                case UnicodeCategory.SpacingCombiningMark:
-                    return true;
-            }
+        //    switch (cat) {
+        //        case UnicodeCategory.NonSpacingMark:
+        //        case UnicodeCategory.SpacingCombiningMark:
+        //            return true;
+        //    }
 
-            return false;
-        }
-        private static bool IsDecimalDigitChar(UnicodeCategory cat) {
-            // decimal-digit-character:
-            //   A Unicode character of the class Nd 
-            //   A unicode-escape-sequence representing a character of the class Nd
+        //    return false;
+        //}
+        //private static bool IsDecimalDigitChar(UnicodeCategory cat) {
+        //    // decimal-digit-character:
+        //    //   A Unicode character of the class Nd 
+        //    //   A unicode-escape-sequence representing a character of the class Nd
 
-            return cat == UnicodeCategory.DecimalDigitNumber;
-        }
-        private static bool IsConnectingChar(UnicodeCategory cat) {
-            // connecting-character:  
-            //   A Unicode character of the class Pc
-            //   A unicode-escape-sequence representing a character of the class Pc
+        //    return cat == UnicodeCategory.DecimalDigitNumber;
+        //}
+        //private static bool IsConnectingChar(UnicodeCategory cat) {
+        //    // connecting-character:  
+        //    //   A Unicode character of the class Pc
+        //    //   A unicode-escape-sequence representing a character of the class Pc
 
-            return cat == UnicodeCategory.ConnectorPunctuation;
-        }
-        private static bool IsFormattingChar(UnicodeCategory cat) {
-            // formatting-character:  
-            //   A Unicode character of the class Cf
-            //   A unicode-escape-sequence representing a character of the class Cf
+        //    return cat == UnicodeCategory.ConnectorPunctuation;
+        //}
+        //private static bool IsFormattingChar(UnicodeCategory cat) {
+        //    // formatting-character:  
+        //    //   A Unicode character of the class Cf
+        //    //   A unicode-escape-sequence representing a character of the class Cf
 
-            return cat == UnicodeCategory.Format;
-        }
+        //    return cat == UnicodeCategory.Format;
+        //}
         #endregion helpers
     }
 

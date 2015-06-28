@@ -178,63 +178,8 @@ namespace CSharpParser {
         }
     }
 
-    [CollectionDataContract(Namespace = Extensions.SystemUri)]
-    public class DiagContext : List<Diag> {
-        public void AddDiag(DiagSeverity severity, int code, string message, TextSpan textSpan) {
-            Add(new Diag(severity, code, message, textSpan));
-        }
-        public void AddDiag(DiagSeverity severity, DiagMsg diagMsg, TextSpan textSpan) {
-            Add(new Diag(severity, diagMsg, textSpan));
-        }
-        public bool HasDiags {
-            get {
-                return Count > 0;
-            }
-        }
-        public bool HasErrorDiags {
-            get {
-                return HasErrorDiagsCore(0);
-            }
-        }
-        private bool HasErrorDiagsCore(int startIndex) {
-            var count = Count;
-            for (; startIndex < count; ++startIndex) {
-                if (this[startIndex].IsError) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        public struct Marker {
-            internal Marker(DiagContext context) {
-                Context = context;
-                StartIndex = context.Count;
-            }
-            internal readonly DiagContext Context;
-            public readonly int StartIndex;
-            public int Count {
-                get {
-                    return Context.Count - StartIndex;
-                }
-            }
-            public bool HasErrorDiags {
-                get {
-                    return Context.HasErrorDiagsCore(StartIndex);
-                }
-            }
-            public void Restore() {
-                Context.RemoveRange(StartIndex, Context.Count - StartIndex);
-            }
-        }
-        public Marker Mark() {
-            return new Marker(this);
-        }
-        public virtual void Reset() {
-            Clear();
-        }
-        internal sealed class DiagException : Exception { }
-        internal static readonly DiagException DiagExceptionObject = new DiagException();
+    //[CollectionDataContract(Namespace = Extensions.SystemUri)]
 
-    }
+
 
 }
