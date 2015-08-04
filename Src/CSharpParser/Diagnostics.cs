@@ -1,9 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 namespace CSharpParser {
-    public enum DiagCode {
+    public enum DiagnosticCode {
         None = 0,
         Parsing = -1000,
 
@@ -37,65 +36,65 @@ namespace CSharpParser {
     }
 
     public struct DiagMsg {
-        public DiagMsg(DiagCode code) {
+        public DiagMsg(DiagnosticCode code) {
             Code = code;
             _msgArgs = null;
         }
-        public DiagMsg(DiagCode code, params string[] msgArgs) {
+        public DiagMsg(DiagnosticCode code, params string[] msgArgs) {
             Code = code;
             _msgArgs = msgArgs;
         }
-        public readonly DiagCode Code;
+        public readonly DiagnosticCode Code;
         private readonly string[] _msgArgs;
         public string GetMessage() {
             switch (Code) {
-                case DiagCode.UriReserved:
+                case DiagnosticCode.UriReserved:
                     return "Uri '" + Extensions.SystemUri + "' is reserved.";
-                case DiagCode.AliasReserved:
+                case DiagnosticCode.AliasReserved:
                     return "Alias 'sys' or 'thisns' are reserved.";
-                case DiagCode.DuplicateAlias:
+                case DiagnosticCode.DuplicateAlias:
                     return "Duplicate alias '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.InvalidUriReference:
+                case DiagnosticCode.InvalidUriReference:
                     return "Invalid uri reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.InvalidAliasReference:
+                case DiagnosticCode.InvalidAliasReference:
                     return "Invalid alias reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.AmbiguousGlobalTypeReference:
+                case DiagnosticCode.AmbiguousGlobalTypeReference:
                     return "Ambiguous global type reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.InvalidGlobalTypeReference:
+                case DiagnosticCode.InvalidGlobalTypeReference:
                     return "Invalid global type reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.DuplicateExpressionArgumentName:
+                case DiagnosticCode.DuplicateExpressionArgumentName:
                     return "Duplicate expression argument name '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.DuplicateLambdaParameterName:
+                case DiagnosticCode.DuplicateLambdaParameterName:
                     return "Duplicate lambda parameter name '{0}'.".InvFormat(_msgArgs);
 
 
-                case DiagCode.InvalidClassReference:
+                case DiagnosticCode.InvalidClassReference:
                     return "Invalid class reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.ClassNotEqualToOrDeriveFromTheDeclared:
+                case DiagnosticCode.ClassNotEqualToOrDeriveFromTheDeclared:
                     return "Class '{0}' not equal to or derive from the declared class '{1}'.".InvFormat(_msgArgs);
-                case DiagCode.ClassIsAbstract:
+                case DiagnosticCode.ClassIsAbstract:
                     return "Class '{0}' is abstract.".InvFormat(_msgArgs);
-                case DiagCode.InvalidPropertyName:
+                case DiagnosticCode.InvalidPropertyName:
                     return "Invalid property name '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.PropertyMissing:
+                case DiagnosticCode.PropertyMissing:
                     return "Property '{0}' missing.".InvFormat(_msgArgs);
-                case DiagCode.NullNotAllowed:
+                case DiagnosticCode.NullNotAllowed:
                     return "Null not allowed.";
-                case DiagCode.ValueExpected:
+                case DiagnosticCode.ValueExpected:
                     return "Value expetced.";
-                case DiagCode.SpecificValueExpected:
+                case DiagnosticCode.SpecificValueExpected:
                     return "{0} value expetced.".InvFormat(_msgArgs);
-                case DiagCode.InvalidAtomValue:
+                case DiagnosticCode.InvalidAtomValue:
                     return "Invalid atom '{0}' value '{1}'.".InvFormat(_msgArgs);
-                case DiagCode.InvalidEnumReference:
+                case DiagnosticCode.InvalidEnumReference:
                     return "Invalid enum reference '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.EnumNotEqualToTheDeclared:
+                case DiagnosticCode.EnumNotEqualToTheDeclared:
                     return "Enum '{0}' not equal to the declared enum '{1}'.".InvFormat(_msgArgs);
-                case DiagCode.InvalidEnumMemberName:
+                case DiagnosticCode.InvalidEnumMemberName:
                     return "Invalid enum member name '{0}'.".InvFormat(_msgArgs);
-                case DiagCode.DuplicateSetItem:
+                case DiagnosticCode.DuplicateSetItem:
                     return "Duplicate set item.";
-                case DiagCode.DuplicateMapKey:
+                case DiagnosticCode.DuplicateMapKey:
                     return "Duplicate map key.";
 
                 default:
@@ -104,7 +103,7 @@ namespace CSharpParser {
         }
     }
 
-    public enum DiagSeverity : byte {
+    public enum DiagnosticSeverity : byte {
         None = 0,
         Error = 1,
         Warning = 2,
@@ -112,18 +111,18 @@ namespace CSharpParser {
     }
 
     [DataContract(Namespace = Extensions.SystemUri)]
-    public struct Diag {
-        public Diag(DiagSeverity severity, int code, string message, TextSpan textSpan) {
+    public struct Diagnostic {
+        public Diagnostic(DiagnosticSeverity severity, int code, string message, TextSpan textSpan) {
             Severity = severity;
             Code = code;
             Message = message;
             TextSpan = textSpan;
         }
-        public Diag(DiagSeverity severity, DiagMsg diagMsg, TextSpan textSpan)
-            : this(severity, (int)diagMsg.Code, diagMsg.GetMessage(), textSpan) {
-        }
+        //public Diagnostic(DiagnosticSeverity severity, DiagMsg diagMsg, TextSpan textSpan)
+        //    : this(severity, (int)diagMsg.Code, diagMsg.GetMessage(), textSpan) {
+        //}
         [DataMember]
-        public readonly DiagSeverity Severity;
+        public readonly DiagnosticSeverity Severity;
         [DataMember]
         public readonly int Code;
         [DataMember]
@@ -132,22 +131,22 @@ namespace CSharpParser {
         public readonly TextSpan TextSpan;//opt
         public bool IsError {
             get {
-                return Severity == DiagSeverity.Error;
+                return Severity == DiagnosticSeverity.Error;
             }
         }
         public bool IsWarning {
             get {
-                return Severity == DiagSeverity.Warning;
+                return Severity == DiagnosticSeverity.Warning;
             }
         }
         public bool IsInfo {
             get {
-                return Severity == DiagSeverity.Info;
+                return Severity == DiagnosticSeverity.Info;
             }
         }
-        internal DiagCode DiagCode {
+        internal DiagnosticCode DiagCode {
             get {
-                return (DiagCode)Code;
+                return (DiagnosticCode)Code;
             }
         }
         public bool HasTextSpan {
@@ -157,7 +156,7 @@ namespace CSharpParser {
         }
         public bool IsValid {
             get {
-                return Severity != DiagSeverity.None;
+                return Severity != DiagnosticSeverity.None;
             }
         }
         public override string ToString() {

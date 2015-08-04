@@ -14,11 +14,7 @@ namespace CSharpParser {
     //    public const string NewKeyword = "new";
     //    public const string ThisKeyword = "this";
     //}
-    public sealed class ParsingException : Exception {
-        private ParsingException() {
-        }
-        internal static readonly ParsingException Instance = new ParsingException();
-    }
+
 
     public abstract class ParserBase {
         protected ParserBase() {
@@ -29,7 +25,7 @@ namespace CSharpParser {
             _TypeSyntaxCreator = Type;
             _ArrayRankSpecifierSyntaxCreator = ArrayRankSpecifier;
         }
-        protected void Set(string filePath, TextReader reader, Context context, IEnumerable<string> ppSymbols) {
+        protected void Set(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols) {
             _lexer = Lexer.Get(filePath, reader, context, ppSymbols);
             _tokenIndex = -1;
             _filePath = filePath;
@@ -49,7 +45,7 @@ namespace CSharpParser {
         private readonly Token[] _tokens;
         private int _tokenIndex;
         private string _filePath;
-        protected Context _context;
+        protected ParsingContext _context;
         //
         protected delegate bool Creator<T>(out T item);//where T : SyntaxNode;
 
@@ -65,16 +61,16 @@ namespace CSharpParser {
 
         //
         protected void Error(int code, string errMsg, TextSpan textSpan) {
-            _context.AddDiag(DiagSeverity.Error, code, errMsg, textSpan);
+            _context.AddDiag(DiagnosticSeverity.Error, code, errMsg, textSpan);
         }
         protected void Error(DiagMsg diagMsg, TextSpan textSpan) {
-            _context.AddDiag(DiagSeverity.Error, diagMsg, textSpan);
+            //_context.AddDiag(DiagnosticSeverity.Error, diagMsg, textSpan);
         }
         protected void Throw() {
             throw ParsingException.Instance;
         }
         protected void ErrorAndThrow(string errMsg, TextSpan textSpan) {
-            Error((int)DiagCode.Parsing, errMsg, textSpan);
+            Error((int)DiagnosticCode.Parsing, errMsg, textSpan);
             Throw();
         }
         protected void ErrorAndThrow(string errMsg, Token token) {
@@ -160,7 +156,7 @@ namespace CSharpParser {
 
         protected bool Keyword(SyntaxKind kind, out SyntaxToken result) {
             var token = GetToken();
-            if (token.IsIdentifier && token.Value == SyntaxFacts.GetText(kind)) {
+            if (token.IsNormalIdentifier && token.Value == SyntaxFacts.GetText(kind)) {
                 ConsumeToken();
                 result = AttachToken(SyntaxFactory.Token(kind), token);
                 return true;
@@ -177,7 +173,7 @@ namespace CSharpParser {
         }
         protected bool ReservedKeyword(HashSet<string> keywordSet, out SyntaxToken result) {
             var token = GetToken();
-            if (token.IsIdentifier) {
+            if (token.IsNormalIdentifier) {
                 var text = token.Value;
                 if (keywordSet.Contains(text)) {
                     ConsumeToken();
@@ -190,7 +186,7 @@ namespace CSharpParser {
         }
         protected bool Identifier(out SyntaxToken result) {
             var token = GetToken();
-            if (token.IsIdentifier) {
+            if (token.IsNormalIdentifier) {
                 var text = token.Value;
                 if (SyntaxFacts.GetKeywordKind(text) != SyntaxKind.None) {
                     ErrorAndThrow("@ required if identifier is keyword.", token);
@@ -438,7 +434,7 @@ namespace CSharpParser {
             var b = CoalesceExpression(out condition);
             _inConditionalExprCondition = false;
             if (b) {
-                SyntaxToken question, colon;
+                SyntaxToken question, colon = default(SyntaxToken);
                 ExpressionSyntax whenTrue = null, whenFalse = null;
                 if (Token('?', out question)) {
                     whenTrue = ExpressionExpected();
@@ -614,8 +610,11 @@ namespace CSharpParser {
             return result != null;
         }
         protected bool ShiftExpression(out ExpressionSyntax result) {
+
+            result = null;
+            return false;
         }
-        
+
         protected bool Type(out TypeSyntax result) {
             TypeSyntax temp;
             SyntaxToken st;
@@ -635,7 +634,7 @@ namespace CSharpParser {
             if (PeekToken(0, '?')) {
                 var get = true;
                 if (_inConditionalExprCondition && _inIsExprType) {
-                    get = !PeekToken(1, (int)TokenKind.Identifier , '(');//todo?
+                    get = !PeekToken(1, (int)TokenKind.NormalIdentifier, '(');//todo?
                 }
                 if (get) {
                     Token('?', out st);
@@ -708,7 +707,7 @@ namespace CSharpParser {
             return true;
         }
         protected bool AliasQualifiedName(out AliasQualifiedNameSyntax result) {
-            if (PeekToken(0, (int)TokenKind.Identifier, (int)TokenKind.VerbatimIdentifier)
+            if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier)
                 && PeekToken(1, (int)TokenKind.ColonColon)) {
                 IdentifierNameSyntax alias;
                 SyntaxToken globalToken;
@@ -727,7 +726,7 @@ namespace CSharpParser {
             return false;
         }
         protected bool SimpleName(out SimpleNameSyntax result) {
-            if (PeekToken(0, (int)TokenKind.Identifier, (int)TokenKind.VerbatimIdentifier)) {
+            if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier)) {
                 if (PeekToken(1, '<')) {
                     GenericNameSyntax gn;
                     GenericName(out gn);

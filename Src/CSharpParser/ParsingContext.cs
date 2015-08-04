@@ -1,28 +1,27 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace CSharpParser {
-    public class Context {
-        public Context() {
-            DiagList = new List<Diag>();
+    public class ParsingContext {
+        public ParsingContext() {
+            DiagnosticList = new List<Diagnostic>();
             _tokenList = new List<Token>();
         }
-        public readonly List<Diag> DiagList;
+        public readonly List<Diagnostic> DiagnosticList;
         private readonly List<Token> _tokenList;
         public virtual void Reset() {
-            DiagList.Clear();
+            DiagnosticList.Clear();
             _tokenList.Clear();
         }
 
-        public void AddDiag(DiagSeverity severity, int code, string message, TextSpan textSpan) {
-            DiagList.Add(new Diag(severity, code, message, textSpan));
+        public void AddDiag(DiagnosticSeverity severity, int code, string message, TextSpan textSpan) {
+            DiagnosticList.Add(new Diagnostic(severity, code, message, textSpan));
         }
-        public void AddDiag(DiagSeverity severity, DiagMsg diagMsg, TextSpan textSpan) {
-            DiagList.Add(new Diag(severity, diagMsg, textSpan));
-        }
+        //public void AddDiag(DiagnosticSeverity severity, DiagMsg diagMsg, TextSpan textSpan) {
+        //    DiagList.Add(new Diagnostic(severity, diagMsg, textSpan));
+        //}
         public bool HasDiags {
             get {
-                return DiagList.Count > 0;
+                return DiagnosticList.Count > 0;
             }
         }
         public bool HasErrorDiags {
@@ -31,7 +30,7 @@ namespace CSharpParser {
             }
         }
         private bool HasErrorDiagsCore(int startIndex) {
-            var list = DiagList;
+            var list = DiagnosticList;
             var count = list.Count;
             for (; startIndex < count; ++startIndex) {
                 if (list[startIndex].IsError) {
@@ -41,15 +40,15 @@ namespace CSharpParser {
             return false;
         }
         public struct Marker {
-            internal Marker(Context context) {
+            internal Marker(ParsingContext context) {
                 Context = context;
-                StartIndex = context.DiagList.Count;
+                StartIndex = context.DiagnosticList.Count;
             }
-            internal readonly Context Context;
+            internal readonly ParsingContext Context;
             public readonly int StartIndex;
             public int Count {
                 get {
-                    return Context.DiagList.Count - StartIndex;
+                    return Context.DiagnosticList.Count - StartIndex;
                 }
             }
             public bool HasErrorDiags {
@@ -58,7 +57,7 @@ namespace CSharpParser {
                 }
             }
             public void Restore() {
-                Context.DiagList.RemoveRange(StartIndex, Context.DiagList.Count - StartIndex);
+                Context.DiagnosticList.RemoveRange(StartIndex, Context.DiagnosticList.Count - StartIndex);
             }
         }
         public Marker Mark() {
