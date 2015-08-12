@@ -1,4 +1,12 @@
-﻿
+﻿//#define ddd /*fdsf*/
+# region
+#if false
+
+#else
+
+#endif
+#endregion
+
 namespace CSharpParser {
     public enum TokenKind {
         //PpHash = -1000,// preprocessor directive '#', internal use

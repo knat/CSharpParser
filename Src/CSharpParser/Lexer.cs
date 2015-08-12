@@ -4,31 +4,31 @@ using System.IO;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace CSharpParser {
+namespace CSharpParser
+{
 
-    public sealed class Lexer {
+    public sealed class Lexer
+    {
         [ThreadStatic]
         private static Lexer _instance;
-        private static Lexer Instance {
+        private static Lexer Instance
+        {
             get { return _instance ?? (_instance = new Lexer()); }
         }
-        public static Lexer Get(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols) {
+        public static Lexer Get(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols)
+        {
             return Instance.Init(filePath, reader, context, ppSymbols);
         }
-        private Lexer() {
+        private Lexer()
+        {
             _buf = new char[_bufLength];
+            _ppSymbolSet = new HashSet<string>();
+            _ppConditionStack = new Stack<PpCondition>();
         }
         //inputs
         private string _filePath;
         private TextReader _reader;
         private ParsingContext _context;
-        private IEnumerable<string> _ppSymbols;
-        private HashSet<string> _ppSymbolSet;
-        private HashSet<string> PpSymbolSet {
-            get {
-                return _ppSymbolSet ?? (_ppSymbolSet = (_ppSymbols == null ? new HashSet<string>() : new HashSet<string>(_ppSymbols)));
-            }
-        }
         //
         private const int _bufLength = 1024;
         private readonly char[] _buf;
@@ -38,101 +38,119 @@ namespace CSharpParser {
         private int _lastLine, _lastColumn, _line, _column;
         private const int _stringBuilderCapacity = 256;
         private StringBuilder _stringBuilder;
-        private bool _atLineHead;//whitespace  is allowed 
-        private bool _getNonTrivalToken;
+        private bool _atLineHead;//whitespace is allowed 
+        private bool _gotNonTrivalToken;
         private int _ppRegionCount;
-        private Stack<PpCondition> _ppConditionStack;
-        private Stack<PpCondition> PpConditionStack {
-            get {
-                return _ppConditionStack ?? (_ppConditionStack = new Stack<PpCondition>());
-            }
-        }
+        private readonly HashSet<string> _ppSymbolSet;
+        private readonly Stack<PpCondition> _ppConditionStack;
+        private Token? _ppExprToken;
 
-        private Lexer Init(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols) {
+        private Lexer Init(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols)
+        {
             if (filePath == null) throw new ArgumentNullException("filePath");
             if (reader == null) throw new ArgumentNullException("reader");
             if (context == null) throw new ArgumentNullException("context");
             _filePath = filePath;
             _reader = reader;
             _context = context;
-            _ppSymbols = ppSymbols;
             _index = _count = 0;
             _isEOF = false;
             _totalIndex = 0;
             _lastLine = _lastColumn = _line = _column = 1;
-            if (_stringBuilder == null) {
+            if (_stringBuilder == null)
+            {
                 _stringBuilder = new StringBuilder(_stringBuilderCapacity);
             }
             _atLineHead = true;
-            _getNonTrivalToken = false;
+            _gotNonTrivalToken = false;
             _ppRegionCount = 0;
+            _ppSymbolSet.Clear();
+            if (ppSymbols != null)
+            {
+                _ppSymbolSet.UnionWith(ppSymbols);
+            }
+            _ppConditionStack.Clear();
             _ppExprToken = null;
             return this;
         }
-        public void Clear() {
+        public void Clear()
+        {
             _filePath = null;
             _reader = null;
             _context = null;
-            _ppSymbols = null;
-            _ppSymbolSet = null;
-            if (_stringBuilder != null && _stringBuilder.Capacity > _stringBuilderCapacity * 8) {
+            if (_stringBuilder != null && _stringBuilder.Capacity > _stringBuilderCapacity * 8)
+            {
                 _stringBuilder = null;
             }
-            if (_ppConditionStack != null) {
-                _ppConditionStack.Clear();
-            }
         }
-        private StringBuilder GetStringBuilder() {
+        private StringBuilder GetStringBuilder()
+        {
             return _stringBuilder.Clear();
         }
-        private char GetChar(int offset = 0) {
+        private char GetChar(int offset = 0)
+        {
             var pos = _index + offset;
-            if (pos < _count) {
+            if (pos < _count)
+            {
                 return _buf[pos];
             }
-            if (_isEOF) {
+            if (_isEOF)
+            {
                 return char.MaxValue;
             }
             var remainCount = _count - _index;
-            if (remainCount > 0) {
-                for (var i = 0; i < remainCount; ++i) {
+            if (remainCount > 0)
+            {
+                for (var i = 0; i < remainCount; ++i)
+                {
                     _buf[i] = _buf[_index + i];
                 }
             }
             var retCount = _reader.Read(_buf, remainCount, _bufLength - remainCount);
-            if (retCount == 0) {
+            if (retCount == 0)
+            {
                 _isEOF = true;
             }
             _index = 0;
             _count = remainCount + retCount;
             return GetChar(offset);
         }
-        private char GetNextChar() {
+        private char GetNextChar()
+        {
             return GetChar(1);
         }
-        private char GetNextNextChar() {
+        private char GetNextNextChar()
+        {
             return GetChar(2);
         }
-        private void AdvanceChar(bool checkNewLine) {
+        private void AdvanceChar(bool checkNewLine = false)
+        {
             _lastLine = _line;
             _lastColumn = _column;
-            if (_index < _count) {
-                if (checkNewLine) {
+            if (_index < _count)
+            {
+                if (checkNewLine)
+                {
                     var ch = _buf[_index++];
                     ++_totalIndex;
-                    if (SyntaxFacts.IsNewLine(ch)) {
-                        if (ch == '\r' && GetChar() == '\n') {
+                    if (SyntaxFacts.IsNewLine(ch))
+                    {
+                        if (ch == '\r' && GetChar() == '\n')
+                        {
                             ++_index;
                             ++_totalIndex;
                         }
                         ++_line;
                         _column = 1;
+                        _atLineHead = true;
                     }
-                    else {
+                    else
+                    {
                         ++_column;
                     }
                 }
-                else {
+                else
+                {
                     ++_index;
                     ++_totalIndex;
                     ++_column;
@@ -141,39 +159,43 @@ namespace CSharpParser {
         }
         private int _tokenStartIndex;
         private TextPosition _tokenStartPosition;
-        private void MarkTokenStart() {
+        private void MarkTokenStart()
+        {
             _tokenStartIndex = _totalIndex;
             _tokenStartPosition = new TextPosition(_line, _column);
         }
-        private TextSpan CreateFullTextSpan() {
+        private TextSpan CreateFullTextSpan()
+        {
             var startIndex = _tokenStartIndex;
             return new TextSpan(_filePath, startIndex, _totalIndex - startIndex, _tokenStartPosition,
                 new TextPosition(_lastLine, _lastColumn));
         }
-        private Token CreateToken(TokenKind tokenKind, string value = null) {
-            //if (tokenKind == TokenKind.NewLine) {
-            //    _atLineHead = true;
-            //}
-            //else if (tokenKind != TokenKind.Whitespace) {
-            //    _atLineHead = false;
-            //}
-            //_atLineHead = false;
+        private Token CreateToken(TokenKind tokenKind, string value = null)
+        {
+            _atLineHead = false;
+            _gotNonTrivalToken = true;
             return new Token((int)tokenKind, value, CreateFullTextSpan());
         }
-        private TextSpan CreateSingleTextSpan() {
+        private TextSpan CreateSingleTextSpan()
+        {
             var pos = new TextPosition(_line, _column);
             return new TextSpan(_filePath, _totalIndex, _index < _count ? 1 : 0, pos, pos);
         }
-        private Token CreateTokenAndAdvanceChar(char ch) {
+        private Token CreateTokenAndAdvanceChar(char ch)
+        {
+            _atLineHead = false;
+            _gotNonTrivalToken = true;
             var token = new Token(ch, null, CreateSingleTextSpan());
             AdvanceChar(false);
             return token;
         }
-        private void ErrorAndThrow(string errMsg, TextSpan textSpan) {
+        private void ErrorAndThrow(string errMsg, TextSpan textSpan)
+        {
             _context.AddDiag(DiagnosticSeverity.Error, (int)DiagnosticCode.Parsing, errMsg, textSpan);
             throw ParsingException.Instance;
         }
-        private void ErrorAndThrow(string errMsg) {
+        private void ErrorAndThrow(string errMsg)
+        {
             ErrorAndThrow(errMsg, CreateSingleTextSpan());
         }
         //private enum State : byte {
@@ -304,12 +326,15 @@ namespace CSharpParser {
         //    }
         //}
 
-        public Token GetToken() {
+        public Token GetToken()
+        {
             char ch, nextch, nextnextch;
             StringBuilder sb;
-            while (true) {
+            while (true)
+            {
                 ch = GetChar();
-                switch (ch) {
+                switch (ch)
+                {
                     case char.MaxValue:
                         return CreateTokenAndAdvanceChar(ch);
                     case ' ':
@@ -378,105 +403,136 @@ namespace CSharpParser {
                         return CreateIdToken(GetStringBuilder().Append(ch));
                     case '/':
                         nextch = GetNextChar();
-                        if (nextch == '/') {
+                        if (nextch == '/')
+                        {
                             AdvanceChar(false);
                             AdvanceChar(false);
-                            while (true) {
+                            while (true)
+                            {
                                 ch = GetChar();
-                                if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch)) {
+                                if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
+                                {
                                     break;
                                 }
                                 else
                                     AdvanceChar(false);
                             }
                         }
-                        else if (nextch == '*') {
+                        else if (nextch == '*')
+                        {
                             AdvanceChar(false);
                             AdvanceChar(false);
-                            while (true) {
+                            while (true)
+                            {
                                 ch = GetChar();
-                                if (ch == '*') {
+                                if (ch == '*')
+                                {
                                     AdvanceChar(false);
                                     ch = GetChar();
-                                    if (ch == '/') {
+                                    if (ch == '/')
+                                    {
                                         AdvanceChar(false);
                                         break;
                                     }
                                 }
-                                else if (ch == char.MaxValue) {
+                                else if (ch == char.MaxValue)
+                                {
                                     ErrorAndThrow("*/ expected.");
                                 }
-                                else {
+                                else
+                                {
                                     AdvanceChar(true);
                                 }
                             }
+                            _atLineHead = false;
                         }
-                        else if (nextch == '=') {
+                        else if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.SlashEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                         break;
                     case '@':
                         nextch = GetNextChar();
-                        if (nextch == '"') {
+                        if (nextch == '"')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             sb = GetStringBuilder();
-                            while (true) {
+                            while (true)
+                            {
                                 ch = GetChar();
-                                if (ch == '"') {
+                                if (ch == '"')
+                                {
                                     AdvanceChar(false);
                                     ch = GetChar();
-                                    if (ch == '"') {
+                                    if (ch == '"')
+                                    {
                                         sb.Append('"');
                                         AdvanceChar(false);
                                     }
-                                    else {
+                                    else
+                                    {
                                         return CreateToken(TokenKind.VerbatimString, sb.ToString());
                                     }
                                 }
-                                else if (ch == char.MaxValue) {
+                                else if (ch == char.MaxValue)
+                                {
                                     ErrorAndThrow("\" expected.");
                                 }
-                                else {
+                                else if (ch == '\r' && GetNextChar() == '\n')
+                                {
+                                    sb.Append("\r\n");
+                                    AdvanceChar(true);
+                                }
+                                else
+                                {
                                     sb.Append(ch);
                                     AdvanceChar(true);
                                 }
                             }
                         }
-                        else if (SyntaxFacts.IsIdentifierStartCharacter(nextch)) {
+                        else if (SyntaxFacts.IsIdentifierStartCharacter(nextch))
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
-                            return CreateIdToken(GetStringBuilder().Append(nextch), TokenKind.VerbatimIdentifier);
+                            return CreateIdToken(GetStringBuilder().Append(nextch), false);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '"':
                         MarkTokenStart();
                         AdvanceChar(false);
                         sb = GetStringBuilder();
-                        while (true) {
+                        while (true)
+                        {
                             ch = GetChar();
-                            if (ch == '\\') {
+                            if (ch == '\\')
+                            {
                                 AdvanceChar(false);
-                                CreateCharEscapeSequence(sb);
+                                ProcessCharEscapeSequence(sb);
                             }
-                            else if (ch == '"') {
+                            else if (ch == '"')
+                            {
                                 AdvanceChar(false);
                                 return CreateToken(TokenKind.NormalString, sb.ToString());
                             }
-                            else if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch)) {
+                            else if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
+                            {
                                 ErrorAndThrow("\" expected.");
                             }
-                            else {
+                            else
+                            {
                                 sb.Append(ch);
                                 AdvanceChar(false);
                             }
@@ -485,262 +541,312 @@ namespace CSharpParser {
                         MarkTokenStart();
                         AdvanceChar(false);
                         sb = GetStringBuilder();
-                        while (true) {
+                        while (true)
+                        {
                             ch = GetChar();
-                            if (sb.Length == 0) {
-                                if (ch == '\\') {
+                            if (sb.Length == 0)
+                            {
+                                if (ch == '\\')
+                                {
                                     AdvanceChar(false);
-                                    CreateCharEscapeSequence(sb);
+                                    ProcessCharEscapeSequence(sb);
                                 }
-                                else if (ch == '\'' || ch == char.MaxValue || SyntaxFacts.IsNewLine(ch) ) {
+                                else if (ch == '\'' || ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
+                                {
                                     ErrorAndThrow("Character expected.");
                                 }
-                                else {
+                                else
+                                {
                                     sb.Append(ch);
                                     AdvanceChar(false);
                                 }
                             }
-                            else if (ch == '\'') {
+                            else if (ch == '\'')
+                            {
                                 AdvanceChar(false);
                                 return CreateToken(TokenKind.Char, sb.ToString());
                             }
-                            else {
+                            else
+                            {
                                 ErrorAndThrow("' expected.");
                             }
                         }
                     case '|':
                         nextch = GetNextChar();
-                        if (nextch == '|') {
+                        if (nextch == '|')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.BarBar);
                         }
-                        else if (nextch == '=') {
+                        else if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.BarEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '&':
                         nextch = GetNextChar();
-                        if (nextch == '&') {
+                        if (nextch == '&')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.AmpersandAmpersand);
                         }
-                        else if (nextch == '=') {
+                        else if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.AmpersandEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '-':
                         nextch = GetNextChar();
-                        if (nextch == '-') {
+                        if (nextch == '-')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.MinusMinus);
                         }
-                        else if (nextch == '=') {
+                        else if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.MinusEquals);
                         }
-                        else if (nextch == '>') {
+                        else if (nextch == '>')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.MinusGreaterThan);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '+':
                         nextch = GetNextChar();
-                        if (nextch == '+') {
+                        if (nextch == '+')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.PlusPlus);
                         }
-                        else if (nextch == '=') {
+                        else if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.PlusEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '!':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.ExclamationEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '=':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.EqualsEquals);
                         }
-                        else if (nextch == '>') {
+                        else if (nextch == '>')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.EqualsGreaterThan);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '<':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.LessThanEquals);
                         }
-                        else if (nextch == '<') {
+                        else if (nextch == '<')
+                        {
                             nextnextch = GetNextNextChar();
-                            if (nextnextch == '=') {
+                            if (nextnextch == '=')
+                            {
                                 MarkTokenStart();
                                 AdvanceChar(false);
                                 AdvanceChar(false);
                                 AdvanceChar(false);
                                 return CreateToken(TokenKind.LessThanLessThanEquals);
                             }
-                            else {
+                            else
+                            {
                                 MarkTokenStart();
                                 AdvanceChar(false);
                                 AdvanceChar(false);
                                 return CreateToken(TokenKind.LessThanLessThan);
                             }
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '>':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.GreaterThanEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '*':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.AsteriskEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '^':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.CaretEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '%':
                         nextch = GetNextChar();
-                        if (nextch == '=') {
+                        if (nextch == '=')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.PercentEquals);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '?':
                         nextch = GetNextChar();
-                        if (nextch == '?') {
+                        if (nextch == '?')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.QuestionQuestion);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case ':':
                         nextch = GetNextChar();
-                        if (nextch == ':') {
+                        if (nextch == ':')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.ColonColon);
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
                     case '#':
                         nextch = GetNextChar();
-                        if (nextch == '#') {
+                        if (nextch == '#')
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             AdvanceChar(false);
                             return CreateToken(TokenKind.HashHash);
                         }
-                        else if (_atLineHead) {
+                        else if (_atLineHead)
+                        {
                             AdvanceChar(false);
-                            //todo
+                            ProcessPpDirective();
                             break;
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
 
 
                     default:
-                        if (SyntaxFacts.IsWhitespace(ch)) {
+                        if (SyntaxFacts.IsWhitespace(ch))
+                        {
                             AdvanceChar(false);
                         }
-                        else if (SyntaxFacts.IsNewLine(ch)) {
+                        else if (SyntaxFacts.IsNewLine(ch))
+                        {
                             AdvanceChar(true);
                         }
-                        else if (SyntaxFacts.IsIdentifierStartCharacter(ch)) {
+                        else if (SyntaxFacts.IsIdentifierStartCharacter(ch))
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             return CreateIdToken(GetStringBuilder().Append(ch));
                         }
-                        else if (IsDecDigit(ch)) {
+                        else if (IsDecDigit(ch))
+                        {
                             MarkTokenStart();
                             AdvanceChar(false);
                             sb = GetStringBuilder();
                             sb.Append(ch);
                             //todo
                         }
-                        else {
+                        else
+                        {
                             return CreateTokenAndAdvanceChar(ch);
                         }
 
@@ -1854,33 +1960,42 @@ namespace CSharpParser {
         //        //}
         //    }
         //}
-        private Token CreateIdToken(StringBuilder sb, TokenKind kind = TokenKind.NormalIdentifier) {
-            while (true) {
+        private Token CreateIdToken(StringBuilder sb, bool isNormal = true)
+        {
+            while (true)
+            {
                 var ch = GetChar();
-                if (SyntaxFacts.IsIdentifierPartCharacter(ch)) {
+                if (SyntaxFacts.IsIdentifierPartCharacter(ch))
+                {
                     sb.Append(ch);
                     AdvanceChar(false);
                 }
-                else {
-                    return CreateToken(kind, sb.ToString());
+                else
+                {
+                    return CreateToken(isNormal ? TokenKind.NormalIdentifier : TokenKind.VerbatimIdentifier, sb.ToString());
                 }
             }
         }
-        private void CreateCharEscapeSequence(StringBuilder sb) {
+        private void ProcessCharEscapeSequence(StringBuilder sb)
+        {
             var ch = GetChar();
-            switch (ch) {
+            switch (ch)
+            {
                 case 'u':
                     {
                         AdvanceChar(false);
                         int value = 0;
-                        for (var i = 0; i < 4; ++i) {
+                        for (var i = 0; i < 4; ++i)
+                        {
                             ch = GetChar();
-                            if (IsHexDigit(ch)) {
+                            if (IsHexDigit(ch))
+                            {
                                 value <<= 4;
                                 value |= HexValue(ch);
                                 AdvanceChar(false);
                             }
-                            else {
+                            else
+                            {
                                 ErrorAndThrow("Invalid character escape sequence.");
                             }
                         }
@@ -1902,36 +2017,186 @@ namespace CSharpParser {
             }
             AdvanceChar(false);
         }
-        private enum PpConditionKind : byte {
-            If,
-            Elif,
-            Else,
-            Endif
+        private bool? ProcessPpDirective()
+        {
+            TextSpan ts;
+            var ppDirective = GetPpIdentifier(out ts);
+            if (ppDirective == "region")
+            {
+                ++_ppRegionCount;
+                ProcessPpRegionComment();
+                return null;
+            }
+            if (ppDirective == "endregion")
+            {
+                if (--_ppRegionCount < 0)
+                {
+                    ErrorAndThrow("Unexpected #endregion.", ts);
+                }
+                ProcessPpRegionComment();
+                return null;
+            }
+            if (ppDirective == "define")
+            {
+                if (_gotNonTrivalToken)
+                {
+                    ErrorAndThrow("Unexpected #define.", ts);
+                }
+                _ppSymbolSet.Add(ppDirective);
+                GetPpExprToken();
+                CheckPpNewLine();
+                return null;
+            }
+            if (ppDirective == "undef")
+            {
+                if (_gotNonTrivalToken)
+                {
+                    ErrorAndThrow("Unexpected #undef.", ts);
+                }
+                _ppSymbolSet.Remove(ppDirective);
+                GetPpExprToken();
+                CheckPpNewLine();
+                return null;
+            }
+            _gotNonTrivalToken = true;
+            bool conditionValue;
+            var stack = _ppConditionStack;
+            if (ppDirective == "if")
+            {
+                stack.Push(new PpCondition(false, conditionValue = PpExpression()));
+            }
+            else if (ppDirective == "elif")
+            {
+                if (stack.Count == 0 || stack.Peek().IsElse)
+                {
+                    ErrorAndThrow("Unexpected #elif.", ts);
+                }
+                stack.Pop();
+                stack.Push(new PpCondition(false, conditionValue = PpExpression()));
+            }
+            else if (ppDirective == "else")
+            {
+                if (stack.Count == 0 || stack.Peek().IsElse)
+                {
+                    ErrorAndThrow("Unexpected #else.", ts);
+                }
+                stack.Push(new PpCondition(true, conditionValue = !stack.Pop().Value));
+                GetPpExprToken();
+            }
+            else if (ppDirective == "endif")
+            {
+                if (stack.Count == 0)
+                {
+                    ErrorAndThrow("Unexpected #endif.", ts);
+                }
+                stack.Pop();
+                conditionValue = true;
+                GetPpExprToken();
+            }
+            else
+            {
+                ErrorAndThrow("Invalid preprocessor directive.", ts);
+                conditionValue = false;
+            }
+            CheckPpNewLine();
+            if (stack.Count > 0)
+            {
+                conditionValue = stack.Peek().Value && conditionValue;
+            }
+            if (conditionValue)
+            {
+                return true;
+            }
+            while (true)
+            {
+                var ch = GetChar();
+                if (SyntaxFacts.IsNewLine(ch))
+                {
+                    AdvanceChar(true);
+                }
+                else
+                {
+                    AdvanceChar();
+                    if (ch == char.MaxValue)
+                    {
+                        return true;
+                    }
+                    else if (ch == '#')
+                    {
+                        if (_atLineHead && GetChar() != '#')
+                        {
+                            if (ProcessPpDirective() == true)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    else if (!SyntaxFacts.IsWhitespace(ch))
+                    {
+                        _atLineHead = false;
+                    }
+                }
+            }
         }
-        private struct PpCondition {
-            internal PpCondition(PpConditionKind kind, bool value) {
-                Kind = kind;
+        private void ProcessPpRegionComment()
+        {
+            while (true)
+            {
+                var ch = GetChar();
+                if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
+                {
+                    return;
+                }
+                AdvanceChar();
+            }
+        }
+        private void CheckPpNewLine()
+        {
+            var nextToken = _ppExprToken.Value;
+            _ppExprToken = null;
+            var nextTokenKind = nextToken.Kind;
+            if (nextTokenKind != (int)TokenKind.SingleLineComment && nextTokenKind != char.MaxValue &&
+                (nextTokenKind < 0 || !SyntaxFacts.IsNewLine((char)nextTokenKind)))
+            {
+                ErrorAndThrow("New line expected.", nextToken.TextSpan);
+            }
+        }
+        private struct PpCondition
+        {
+            internal PpCondition(bool isElse, bool value)
+            {
+                IsElse = isElse;
                 Value = value;
             }
-            internal readonly PpConditionKind Kind;
+            internal readonly bool IsElse;
             internal readonly bool Value;
         }
-        private string TryGetPpIdentifier(out TextSpan ts) {
+        private string TryGetPpIdentifier(out TextSpan ts)
+        {
             var ch = GetChar();
-            while (SyntaxFacts.IsWhitespace(ch)) {
+            while (SyntaxFacts.IsWhitespace(ch))
+            {
                 AdvanceChar(false);
                 ch = GetChar();
             }
-            if (SyntaxFacts.IsIdentifierStartCharacter(ch)) {
+            if (SyntaxFacts.IsIdentifierStartCharacter(ch))
+            {
                 var sb = GetStringBuilder();
                 sb.Append(ch);
                 MarkTokenStart();
                 AdvanceChar(false);
-                ch = GetChar();
-                while (SyntaxFacts.IsIdentifierPartCharacter(ch)) {
-                    sb.Append(ch);
-                    AdvanceChar(false);
+                while (true)
+                {
                     ch = GetChar();
+                    if (SyntaxFacts.IsIdentifierPartCharacter(ch))
+                    {
+                        sb.Append(ch);
+                        AdvanceChar(false);
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
                 ts = CreateFullTextSpan();
                 return sb.ToString();
@@ -1939,83 +2204,106 @@ namespace CSharpParser {
             ts = default(TextSpan);
             return null;
         }
-        private string GetPpIdentifier(out TextSpan ts) {
+        private string GetPpIdentifier(out TextSpan ts)
+        {
             var s = TryGetPpIdentifier(out ts);
-            if (s == null) {
+            if (s == null)
+            {
                 ErrorAndThrow("Identifier expected.");
             }
             return s;
         }
-        private bool PpExpression() {
+        private bool PpExpression()
+        {
             var result = PpAndExpression();
-            while (true) {
-                if (GetPpExprToken().TokenKind == TokenKind.BarBar) {
+            while (true)
+            {
+                if (GetPpExprToken().TokenKind == TokenKind.BarBar)
+                {
                     ConsumePpExprToken();
                     result = result || PpAndExpression();
                 }
-                else {
+                else
+                {
                     break;
                 }
             }
             return result;
         }
-        private bool PpAndExpression() {
+        private bool PpAndExpression()
+        {
             var result = PpEqualityExpression();
-            while (true) {
-                if (GetPpExprToken().TokenKind == TokenKind.AmpersandAmpersand) {
+            while (true)
+            {
+                if (GetPpExprToken().TokenKind == TokenKind.AmpersandAmpersand)
+                {
                     ConsumePpExprToken();
                     result = result && PpEqualityExpression();
                 }
-                else {
+                else
+                {
                     break;
                 }
             }
             return result;
         }
-        private bool PpEqualityExpression() {
+        private bool PpEqualityExpression()
+        {
             var result = PpUnaryExpression();
-            while (true) {
+            while (true)
+            {
                 var tokenKind = GetPpExprToken().TokenKind;
-                if (tokenKind == TokenKind.EqualsEquals) {
+                if (tokenKind == TokenKind.EqualsEquals)
+                {
                     ConsumePpExprToken();
                     result = result == PpUnaryExpression();
                 }
-                else if (tokenKind == TokenKind.ExclamationEquals) {
+                else if (tokenKind == TokenKind.ExclamationEquals)
+                {
                     ConsumePpExprToken();
                     result = result != PpUnaryExpression();
                 }
-                else {
+                else
+                {
                     break;
                 }
             }
             return result;
         }
-        private bool PpUnaryExpression() {
-            if (GetPpExprToken().Kind == '!') {
+        private bool PpUnaryExpression()
+        {
+            if (GetPpExprToken().Kind == '!')
+            {
                 ConsumePpExprToken();
                 return !PpUnaryExpression();
             }
             return PpPrimaryExpression();
         }
-        private bool PpPrimaryExpression() {
+        private bool PpPrimaryExpression()
+        {
             var token = GetPpExprToken();
             var tokenKind = token.Kind;
-            if (tokenKind == (int)TokenKind.NormalIdentifier) {
+            if (tokenKind == (int)TokenKind.NormalIdentifier)
+            {
                 ConsumePpExprToken();
                 var text = token.Value;
-                if (text == "true") {
+                if (text == "true")
+                {
                     return true;
                 }
-                if (text == "false") {
+                if (text == "false")
+                {
                     return false;
                 }
-                return PpSymbolSet.Contains(text);
+                return _ppSymbolSet.Contains(text);
             }
-            if (tokenKind == '(') {
+            if (tokenKind == '(')
+            {
                 ConsumePpExprToken();
                 var result = PpExpression();
                 token = GetPpExprToken();
-                if (token.Kind != ')') {
+                if (token.Kind != ')')
+                {
                     ErrorAndThrow(") expected.", token.TextSpan);
                 }
                 ConsumePpExprToken();
@@ -2024,65 +2312,80 @@ namespace CSharpParser {
             ErrorAndThrow("Identifier expected.", token.TextSpan);
             return false;
         }
-        private Token? _ppExprToken;
-        private Token GetPpExprToken() {
+        private Token GetPpExprToken()
+        {
             return (_ppExprToken ?? (_ppExprToken = GetPpExprTokenCore())).Value;
         }
-        private void ConsumePpExprToken() {
+        private void ConsumePpExprToken()
+        {
             _ppExprToken = null;
         }
-        private Token GetPpExprTokenCore() {
+        private Token GetPpExprTokenCore()
+        {
             TextSpan ts;
             var s = TryGetPpIdentifier(out ts);
-            if (s != null) {
+            if (s != null)
+            {
                 return new Token((int)TokenKind.NormalIdentifier, s, ts);
             }
             var ch = GetChar();
-            if (ch == '|') {
+            if (ch == '|')
+            {
                 var nextch = GetNextChar();
-                if (nextch == '|') {
+                if (nextch == '|')
+                {
                     MarkTokenStart();
                     AdvanceChar(false);
                     AdvanceChar(false);
                     return CreateToken(TokenKind.BarBar);
                 }
             }
-            else if (ch == '&') {
+            else if (ch == '&')
+            {
                 var nextch = GetNextChar();
-                if (nextch == '&') {
+                if (nextch == '&')
+                {
                     MarkTokenStart();
                     AdvanceChar(false);
                     AdvanceChar(false);
                     return CreateToken(TokenKind.AmpersandAmpersand);
                 }
             }
-            else if (ch == '=') {
+            else if (ch == '=')
+            {
                 var nextch = GetNextChar();
-                if (nextch == '=') {
+                if (nextch == '=')
+                {
                     MarkTokenStart();
                     AdvanceChar(false);
                     AdvanceChar(false);
                     return CreateToken(TokenKind.EqualsEquals);
                 }
             }
-            else if (ch == '!') {
+            else if (ch == '!')
+            {
                 var nextch = GetNextChar();
-                if (nextch == '=') {
+                if (nextch == '=')
+                {
                     MarkTokenStart();
                     AdvanceChar(false);
                     AdvanceChar(false);
                     return CreateToken(TokenKind.ExclamationEquals);
                 }
             }
-            else if (ch == '/') {
+            else if (ch == '/')
+            {
                 var nextch = GetNextChar();
-                if (nextch == '/') {
+                if (nextch == '/')
+                {
                     MarkTokenStart();
                     AdvanceChar(false);
                     AdvanceChar(false);
-                    while (true) {
+                    while (true)
+                    {
                         ch = GetChar();
-                        if (SyntaxFacts.IsNewLine(ch) || ch == char.MaxValue) {
+                        if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
+                        {
                             break;
                         }
                         AdvanceChar(false);
@@ -2114,18 +2417,22 @@ namespace CSharpParser {
         //        || ch == '\u001A'
         //        || (ch > 255 && CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.SpaceSeparator);
         //}
-        private static bool IsDecDigit(char ch) {
+        private static bool IsDecDigit(char ch)
+        {
             return ch >= '0' && ch <= '9';
         }
-        private static bool IsHexDigit(char ch) {
+        private static bool IsHexDigit(char ch)
+        {
             return (ch >= '0' && ch <= '9') ||
                    (ch >= 'A' && ch <= 'F') ||
                    (ch >= 'a' && ch <= 'f');
         }
-        private static int DecValue(char ch) {
+        private static int DecValue(char ch)
+        {
             return ch - '0';
         }
-        private static int HexValue(char ch) {
+        private static int HexValue(char ch)
+        {
             return (ch >= '0' && ch <= '9') ? ch - '0' : (ch & 0xdf) - 'A' + 10;
         }
 
