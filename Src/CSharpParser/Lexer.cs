@@ -197,7 +197,6 @@ namespace CSharpParser
         {
             ErrorAndThrow(errMsg, CreateSingleTextSpan());
         }
-
         public Token GetToken()
         {
             char ch, nextch, nextnextch;
