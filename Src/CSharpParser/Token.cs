@@ -1,28 +1,17 @@
-﻿//#define ddd /*fdsf*/
-# region
-#if false
+﻿
+using System;
 
-#else
-
-#endif
-#endregion
-
-namespace CSharpParser {
-    public enum TokenKind {
-        //PpHash = -1000,// preprocessor directive '#', internal use
-        //Whitespace,
-        //NewLine,
-        //MultiLineComment,
+namespace CSharpParser
+{
+    public enum TokenKind
+    {
         SingleLineComment = -1000,//internal use
         NormalIdentifier,
         VerbatimIdentifier,// @id
         NormalString,
         VerbatimString,// @"..."
         Char,// 'c'
-        IntegerLiteral,// 123
-        DecimalLiteral,// 123.45
-        RealLiteral,// 123.45Ee+-12
-        //
+        Number,
         //
         BarBar,// ||
         BarEquals,// |=
@@ -49,54 +38,96 @@ namespace CSharpParser {
         QuestionQuestion,// ??
         ColonColon,// ::
         //
-        HashHash,// ##
+        //HashHash,// ##
 
     }
-    public struct Token {
-        public Token(int kind, string value, TextSpan textSpan) {
+    public struct Token : IEquatable<Token>
+    {
+        public Token(int kind, string value, TextSpan textSpan)
+        {
             Kind = kind;
             Value = value;
             TextSpan = textSpan;
         }
         public readonly int Kind;
-        public readonly string Value;//for TokenKind.Identifier to TokenKind.RealValue
+        public readonly string Value;//for TokenKind.NormalIdentifier to TokenKind.Number
         public readonly TextSpan TextSpan;
-        public TokenKind TokenKind {
-            get {
+        public TokenKind TokenKind
+        {
+            get
+            {
                 return (TokenKind)Kind;
             }
         }
-        //public bool IsWhitespace {
-        //    get {
-        //        return TokenKind == TokenKind.Whitespace;
-        //    }
-        //}
-        //public bool IsNewLine {
-        //    get {
-        //        return TokenKind == TokenKind.NewLine;
-        //    }
-        //}
-        public bool IsSingleLineComment {
-            get {
-                return TokenKind == TokenKind.SingleLineComment;
+        public bool IsValid
+        {
+            get
+            {
+                return TextSpan.IsValid;
             }
         }
-        public bool IsNormalIdentifier {
-            get {
-                return TokenKind == TokenKind.NormalIdentifier;
-            }
-        }
-        public bool IsVerbatimIdentifier {
-            get {
-                return TokenKind == TokenKind.VerbatimIdentifier;
-            }
-        }
-
-        public bool IsEndOfFile {
-            get {
+        public bool IsEndOfFile
+        {
+            get
+            {
                 return Kind == char.MaxValue;
             }
         }
+
+        public bool IsNormalIdentifier
+        {
+            get
+            {
+                return TokenKind == TokenKind.NormalIdentifier;
+            }
+        }
+        public bool IsVerbatimIdentifier
+        {
+            get
+            {
+                return TokenKind == TokenKind.VerbatimIdentifier;
+            }
+        }
+        public bool IsIdentifier
+        {
+            get
+            {
+                return IsNormalIdentifier|| IsVerbatimIdentifier;
+            }
+        }
+        public bool IsKeyword(string value)
+        {
+            return IsNormalIdentifier && Value == value;
+        }
+
+        //
+        public override string ToString()
+        {
+            return Value;
+        }
+        public bool Equals(Token other)
+        {
+            return Value == other.Value;
+        }
+        public override bool Equals(object obj)
+        {
+            return obj is Token && Equals((Token)obj);
+        }
+        public override int GetHashCode()
+        {
+            return Value != null ? Value.GetHashCode() : 0;
+        }
+        public static bool operator ==(Token left, Token right)
+        {
+            return left.Equals(right);
+        }
+        public static bool operator !=(Token left, Token right)
+        {
+            return !left.Equals(right);
+        }
+
+
+
     }
 
 }
