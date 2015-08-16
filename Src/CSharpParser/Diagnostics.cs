@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Runtime.Serialization;
 
-namespace CSharpParser {
-    public enum DiagnosticCode {
+namespace CSharpParser
+{
+    public enum DiagnosticCode
+    {
         None = 0,
         Parsing = -1000,
 
@@ -35,19 +37,24 @@ namespace CSharpParser {
 
     }
 
-    public struct DiagMsg {
-        public DiagMsg(DiagnosticCode code) {
+    public struct DiagMsg
+    {
+        public DiagMsg(DiagnosticCode code)
+        {
             Code = code;
             _msgArgs = null;
         }
-        public DiagMsg(DiagnosticCode code, params string[] msgArgs) {
+        public DiagMsg(DiagnosticCode code, params string[] msgArgs)
+        {
             Code = code;
             _msgArgs = msgArgs;
         }
         public readonly DiagnosticCode Code;
         private readonly string[] _msgArgs;
-        public string GetMessage() {
-            switch (Code) {
+        public string GetMessage()
+        {
+            switch (Code)
+            {
                 case DiagnosticCode.UriReserved:
                     return "Uri '" + Extensions.SystemUri + "' is reserved.";
                 case DiagnosticCode.AliasReserved:
@@ -103,7 +110,8 @@ namespace CSharpParser {
         }
     }
 
-    public enum DiagnosticSeverity : byte {
+    public enum DiagnosticSeverity : byte
+    {
         None = 0,
         Error = 1,
         Warning = 2,
@@ -111,8 +119,10 @@ namespace CSharpParser {
     }
 
     [DataContract(Namespace = Extensions.SystemUri)]
-    public struct Diagnostic {
-        public Diagnostic(DiagnosticSeverity severity, int code, string message, TextSpan textSpan) {
+    public struct Diagnostic
+    {
+        public Diagnostic(DiagnosticSeverity severity, int code, string message, TextSpan textSpan)
+        {
             Severity = severity;
             Code = code;
             Message = message;
@@ -129,45 +139,60 @@ namespace CSharpParser {
         public readonly string Message;
         [DataMember]
         public readonly TextSpan TextSpan;//opt
-        public bool IsError {
-            get {
+        public bool IsError
+        {
+            get
+            {
                 return Severity == DiagnosticSeverity.Error;
             }
         }
-        public bool IsWarning {
-            get {
+        public bool IsWarning
+        {
+            get
+            {
                 return Severity == DiagnosticSeverity.Warning;
             }
         }
-        public bool IsInfo {
-            get {
+        public bool IsInfo
+        {
+            get
+            {
                 return Severity == DiagnosticSeverity.Info;
             }
         }
-        internal DiagnosticCode DiagCode {
-            get {
+        internal DiagnosticCode DiagCode
+        {
+            get
+            {
                 return (DiagnosticCode)Code;
             }
         }
-        public bool HasTextSpan {
-            get {
+        public bool HasTextSpan
+        {
+            get
+            {
                 return TextSpan.IsValid;
             }
         }
-        public bool IsValid {
-            get {
+        public bool IsValid
+        {
+            get
+            {
                 return Severity != DiagnosticSeverity.None;
             }
         }
-        public override string ToString() {
-            if (IsValid) {
+        public override string ToString()
+        {
+            if (IsValid)
+            {
                 var sb = StringBuilderBuffer.Acquire();
                 sb.Append(Severity.ToString());
                 sb.Append(' ');
                 sb.Append(Code.ToInvString());
                 sb.Append(": ");
                 sb.Append(Message);
-                if (HasTextSpan) {
+                if (HasTextSpan)
+                {
                     sb.Append("\r\n    ");
                     sb.Append(TextSpan.ToString());
                 }

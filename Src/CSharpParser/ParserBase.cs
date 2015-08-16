@@ -1,40 +1,36 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 
-namespace CSharpParser {
-    //internal static class ParserKeywords {
-    //    public const string AsKeyword = "as";
-    //    public const string ImportKeyword = "import";
-    //    public const string IsKeyword = "is";
-    //    public const string NewKeyword = "new";
-    //    public const string ThisKeyword = "this";
-    //}
-
-
-    public abstract class ParserBase {
-        protected ParserBase() {
-            _tokens = new Token[_tokenBufLength];
+namespace CSharpParser
+{
+    public abstract class ParserBase
+    {
+        protected ParserBase()
+        {
+            _tokenBuf = new Token[_tokenBufLength];
             //
             _ExternAliasDirectiveSyntaxCreator = ExternAliasDirective;
             _ExpressionSyntaxCreator = Expression;
             _TypeSyntaxCreator = Type;
             _ArrayRankSpecifierSyntaxCreator = ArrayRankSpecifier;
         }
-        protected void Set(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols) {
+        protected virtual void Init(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols)
+        {
             _lexer = Lexer.Get(filePath, reader, context, ppSymbols);
-            _tokenIndex = -1;
+            _tokenCount = 0;
             _filePath = filePath;
             _context = context;
             //
             _allowArrayRankSpecifierExprs = false;
         }
-        protected void Clear() {
-            if (_lexer != null) {
+        protected virtual void Clear()
+        {
+            if (_lexer != null)
+            {
                 _lexer.Clear();
             }
             _filePath = null;
@@ -42,8 +38,8 @@ namespace CSharpParser {
         }
         private Lexer _lexer;
         private const int _tokenBufLength = 8;
-        private readonly Token[] _tokens;
-        private int _tokenIndex;
+        private readonly Token[] _tokenBuf;
+        private int _tokenCount;
         private string _filePath;
         protected ParsingContext _context;
         //
@@ -60,103 +56,84 @@ namespace CSharpParser {
 
 
         //
-        protected void Error(int code, string errMsg, TextSpan textSpan) {
+        protected void Error(int code, string errMsg, TextSpan textSpan)
+        {
             _context.AddDiag(DiagnosticSeverity.Error, code, errMsg, textSpan);
         }
-        protected void Error(DiagMsg diagMsg, TextSpan textSpan) {
-            //_context.AddDiag(DiagnosticSeverity.Error, diagMsg, textSpan);
+        protected void Error(DiagMsg diagMsg, TextSpan textSpan)
+        {
+            Error((int)diagMsg.Code, diagMsg.GetMessage(), textSpan);
         }
-        protected void Throw() {
+        protected void Throw()
+        {
             throw ParsingException.Instance;
         }
-        protected void ErrorAndThrow(string errMsg, TextSpan textSpan) {
+        protected void ErrorAndThrow(string errMsg, TextSpan textSpan)
+        {
             Error((int)DiagnosticCode.Parsing, errMsg, textSpan);
             Throw();
         }
-        protected void ErrorAndThrow(string errMsg, Token token) {
-            ErrorAndThrow(errMsg, token.TextSpan);
+        protected void ErrorAndThrow(string errMsg)
+        {
+            ErrorAndThrow(errMsg, GetToken().TextSpan);
         }
-        protected void ErrorAndThrow(string errMsg) {
-            ErrorAndThrow(errMsg, GetToken());
-        }
-        protected void ErrorAndThrow(DiagMsg diagMsg, TextSpan textSpan) {
+        protected void ErrorAndThrow(DiagMsg diagMsg, TextSpan textSpan)
+        {
             Error(diagMsg, textSpan);
             Throw();
         }
-        protected void ErrorAndThrow(DiagMsg diagMsg) {
+        protected void ErrorAndThrow(DiagMsg diagMsg)
+        {
             ErrorAndThrow(diagMsg, GetToken().TextSpan);
         }
-        //protected TextSpan GetTextSpan(Token token) {
-        //    return token.ToTextSpan(_filePath);
-        //}
-        //protected TextSpan GetTextSpan() {
-        //    return GetTextSpan(GetToken());
-        //}
-        //
-        //private Token GetTokenCore() {
-        //    var token = _lexer.GetToken();
-        //    if (token.Kind == (int)TokenKind.Error) {
-        //        ErrorAndThrow(null, token);
-        //    }
-        //    return token;
-        //}
-        //
-        //private static bool IsTrivalToken(int kind) {
-        //    return kind == (int)TokenKind.Whitespace || kind == (int)TokenKind.NewLine || kind == (int)TokenKind.SingleLineComment || kind == (int)TokenKind.MultiLineComment;
-        //}
-        //protected static bool IsIdentifierToken(int kind) {
-        //    return kind == (int)TokenKind.Identifier || kind == (int)TokenKind.VerbatimIdentifier;
-        //}
-        //protected static bool IsIdentifierToken(TokenKind kind) {
-        //    return kind == TokenKind.Identifier || kind == TokenKind.VerbatimIdentifier;
-        //}
-        //protected static bool IsStringToken(int kind) {
-        //    return kind == (int)TokenKind.String || kind == (int)TokenKind.VerbatimString;
-        //}
-        //protected static bool IsStringToken(TokenKind kind) {
-        //    return kind == TokenKind.String || kind == TokenKind.VerbatimString;
-        //}
-        //protected static bool IsNumberToken(int kind) {
-        //    return kind == (int)TokenKind.IntegerLiteral || kind == (int)TokenKind.DecimalLiteral || kind == (int)TokenKind.RealLiteral;
-        //} 
-        protected Token GetToken(int index = 0) {
-            Debug.Assert(index >= 0 && index < _tokenBufLength);
-            var tokens = _tokens;
-            while (_tokenIndex < index) {
-                tokens[++_tokenIndex] = _lexer.GetToken();
+
+        protected Token GetToken(int offset = 0)
+        {
+            var tokenBuf = _tokenBuf;
+            while (_tokenCount <= offset)
+            {
+                tokenBuf[_tokenCount++] = _lexer.GetToken();
             }
-            return tokens[index];
+            return tokenBuf[offset];
         }
-        protected void ConsumeToken() {
-            Debug.Assert(_tokenIndex >= 0);
-            if (--_tokenIndex >= 0) {
-                Array.Copy(_tokens, 1, _tokens, 0, _tokenIndex + 1);
+        protected void ConsumeToken()
+        {
+            if (--_tokenCount > 0)
+            {
+                Array.Copy(_tokenBuf, 1, _tokenBuf, 0, _tokenCount);
             }
         }
-        protected bool PeekToken(int tkIdx, int kind) {
-            return GetToken(tkIdx).Kind == kind;
+        protected bool PeekToken(int offset, int kind)
+        {
+            return GetToken(offset).Kind == kind;
         }
-        protected bool PeekToken(int tkIdx, int kind1, int kind2) {
-            var kind = GetToken(tkIdx).Kind;
+        protected bool PeekToken(int offset, int kind1, int kind2)
+        {
+            var kind = GetToken(offset).Kind;
             return kind == kind1 || kind == kind2;
         }
-        protected bool PeekToken(int tkIdx, int kind1, int kind2, int kind3) {
-            var kind = GetToken(tkIdx).Kind;
+        protected bool PeekToken(int offset, int kind1, int kind2, int kind3)
+        {
+            var kind = GetToken(offset).Kind;
             return kind == kind1 || kind == kind2 || kind == kind3;
         }
-        protected bool PeekToken(int tkIdx, int kind1, int kind2, int kind3, int kind4) {
-            var kind = GetToken(tkIdx).Kind;
+        protected bool PeekToken(int offset, int kind1, int kind2, int kind3, int kind4)
+        {
+            var kind = GetToken(offset).Kind;
             return kind == kind1 || kind == kind2 || kind == kind3 || kind == kind4;
         }
 
         private const string _syntaxAnnotationKindName = "CSharpParserToken";
-        protected SyntaxToken AttachToken(SyntaxToken syntax, Token token) {
+        protected SyntaxToken AttachToken(SyntaxToken syntax, Token token)
+        {
             return syntax.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName, _context.AddToken(token)));
         }
 
-        protected bool Keyword(SyntaxKind kind, out SyntaxToken result) {
+        protected bool Keyword(SyntaxKind kind, out SyntaxToken result)
+        {
             var token = GetToken();
-            if (token.IsNormalIdentifier && token.Value == SyntaxFacts.GetText(kind)) {
+            if (token.IsNormalIdentifier && token.Value == SyntaxFacts.GetText(kind))
+            {
                 ConsumeToken();
                 result = AttachToken(SyntaxFactory.Token(kind), token);
                 return true;
@@ -164,18 +141,23 @@ namespace CSharpParser {
             result = default(SyntaxToken);
             return false;
         }
-        protected SyntaxToken KeywordExpected(SyntaxKind kind) {
+        protected SyntaxToken KeywordExpected(SyntaxKind kind)
+        {
             SyntaxToken result;
-            if (!Keyword(kind, out result)) {
+            if (!Keyword(kind, out result))
+            {
                 ErrorAndThrow(SyntaxFacts.GetText(kind) + " expected.");
             }
             return result;
         }
-        protected bool ReservedKeyword(HashSet<string> keywordSet, out SyntaxToken result) {
+        protected bool Keywords(HashSet<string> keywordSet, out SyntaxToken result)
+        {
             var token = GetToken();
-            if (token.IsNormalIdentifier) {
+            if (token.IsNormalIdentifier)
+            {
                 var text = token.Value;
-                if (keywordSet.Contains(text)) {
+                if (keywordSet.Contains(text))
+                {
                     ConsumeToken();
                     result = AttachToken(SyntaxFactory.Token(SyntaxFacts.GetKeywordKind(text)), token);
                     return true;
@@ -184,34 +166,42 @@ namespace CSharpParser {
             result = default(SyntaxToken);
             return false;
         }
-        protected bool Identifier(out SyntaxToken result) {
+        protected bool Identifier(out SyntaxToken result)
+        {
             var token = GetToken();
-            if (token.IsNormalIdentifier) {
+            if (token.IsNormalIdentifier)
+            {
                 var text = token.Value;
-                if (SyntaxFacts.GetKeywordKind(text) != SyntaxKind.None) {
-                    ErrorAndThrow("@ required if identifier is keyword.", token);
+                if (SyntaxFacts.GetKeywordKind(text) != SyntaxKind.None)
+                {
+                    ErrorAndThrow("@ required if identifier is keyword.", token.TextSpan);
                 }
                 ConsumeToken();
                 result = AttachToken(SyntaxFactory.Identifier(text), token);
                 return true;
             }
-            if (token.IsVerbatimIdentifier) {
+            if (token.IsVerbatimIdentifier)
+            {
                 ConsumeToken();
-                result = AttachToken(CS.Id(token.Value), token);
+                var text = token.Value;
+                result = AttachToken(SyntaxFactory.Identifier(default(SyntaxTriviaList), SyntaxKind.IdentifierToken,
+                    "@" + text, text, default(SyntaxTriviaList)), token);
                 return true;
             }
             result = default(SyntaxToken);
             return false;
         }
-        protected SyntaxToken IdentifierExpected() {
+        protected SyntaxToken IdentifierExpected()
+        {
             SyntaxToken result;
-            if (!Identifier(out result)) {
+            if (!Identifier(out result))
+            {
                 ErrorAndThrow("Identifier expected.");
             }
             return result;
         }
-        #region
-        protected static readonly Dictionary<int, SyntaxKind> TokenMap = new Dictionary<int, SyntaxKind> {
+
+        protected static readonly Dictionary<int, SyntaxKind> _tokenKindMap = new Dictionary<int, SyntaxKind> {
             {'~', SyntaxKind.TildeToken },
             {'!', SyntaxKind.ExclamationToken },
             {'$', SyntaxKind.DollarToken },
@@ -255,6 +245,8 @@ namespace CSharpParser {
             {(int)TokenKind.LessThanLessThan, SyntaxKind.LessThanLessThanToken },
             {(int)TokenKind.LessThanLessThanEquals, SyntaxKind.LessThanLessThanEqualsToken },
             {(int)TokenKind.GreaterThanEquals, SyntaxKind.GreaterThanEqualsToken },
+            {(int)TokenKind.GreaterThanGreaterThan, SyntaxKind.GreaterThanGreaterThanToken },
+            {(int)TokenKind.GreaterThanGreaterThanEquals, SyntaxKind.GreaterThanGreaterThanEqualsToken },
             {(int)TokenKind.SlashEquals, SyntaxKind.SlashEqualsToken },
             {(int)TokenKind.AsteriskEquals, SyntaxKind.AsteriskEqualsToken },
             {(int)TokenKind.BarEquals, SyntaxKind.BarEqualsToken },
@@ -265,186 +257,257 @@ namespace CSharpParser {
             {(int)TokenKind.PercentEquals, SyntaxKind.PercentEqualsToken },
 
         };
-        protected bool Token(int kind, out SyntaxToken result) {
+        protected bool Token(int kind, out SyntaxToken result)
+        {
             var token = GetToken();
-            if (token.Kind == kind) {
+            if (token.Kind == kind)
+            {
                 ConsumeToken();
-                result = AttachToken(SyntaxFactory.Token(TokenMap[kind]), token);
+                result = AttachToken(SyntaxFactory.Token(_tokenKindMap[kind]), token);
                 return true;
             }
             result = default(SyntaxToken);
             return false;
         }
-        protected SyntaxToken TokenExpected(int kind) {
+        protected bool Token(int kind1, int kind2, int mergedKind, out SyntaxToken result)
+        {
+            var token1 = GetToken();
+            if (token1.Kind == kind1)
+            {
+                var token2 = GetToken(1);
+                if (token2.Kind == kind2 && token1.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
+                {
+                    ConsumeToken();
+                    ConsumeToken();
+                    result = AttachToken(SyntaxFactory.Token(_tokenKindMap[mergedKind]),
+                        new Token(mergedKind, null, token1.TextSpan.MergeWith(token2.TextSpan)));
+                    return true;
+                }
+            }
+            result = default(SyntaxToken);
+            return false;
+        }
+
+        protected SyntaxToken TokenExpected(int kind)
+        {
             SyntaxToken result;
-            if (!Token(kind, out result)) {
-                ErrorAndThrow(SyntaxFacts.GetText(TokenMap[kind]) + " expected.");
+            if (!Token(kind, out result))
+            {
+                ErrorAndThrow(SyntaxFacts.GetText(_tokenKindMap[kind]) + " expected.");
             }
             return result;
         }
-        #endregion
 
-        protected SyntaxList<T> List<T>(Creator<T> itemCreator) where T : SyntaxNode {
+        protected SyntaxList<T> List<T>(Creator<T> itemCreator) where T : SyntaxNode
+        {
             T singleItem = null;
-            List<T> list = null;
-            while (true) {
+            List<T> itemList = null;
+            while (true)
+            {
                 T item;
-                if (itemCreator(out item)) {
-                    if (singleItem == null) {
+                if (itemCreator(out item))
+                {
+                    if (singleItem == null)
+                    {
                         singleItem = item;
                     }
-                    else {
-                        if (list == null) {
-                            list = new List<T>();
-                            list.Add(singleItem);
+                    else
+                    {
+                        if (itemList == null)
+                        {
+                            itemList = new List<T>();
+                            itemList.Add(singleItem);
                         }
-                        list.Add(item);
+                        itemList.Add(item);
                     }
                 }
-                else {
+                else
+                {
                     break;
                 }
             }
-            if (list != null) {
-                return SyntaxFactory.List(list);
+            if (itemList != null)
+            {
+                return SyntaxFactory.List(itemList);
             }
-            if (singleItem != null) {
+            if (singleItem != null)
+            {
                 return SyntaxFactory.SingletonList(singleItem);
             }
             return default(SyntaxList<T>);
         }
-        protected SeparatedSyntaxList<T> SeparatedList<T>(Creator<T> nodeCreator, int separatorKind = ',', bool allowTrailingSeparator = false,
-                Func<T> omittedNodeCreator = null) where T : SyntaxNode {
-            T singleNode = null;
-            List<T> nodeList = null;
+        protected SeparatedSyntaxList<T> SeparatedList<T>(Creator<T> itemCreator, int separatorKind = ',',
+            bool allowTrailingSeparator = false, Func<T> omittedItemCreator = null) where T : SyntaxNode
+        {
+            T singleItem = null;
+            List<T> itemList = null;
             SyntaxToken? singleSeparator = null;
             List<SyntaxToken> separatorList = null;
             var useNormal = false;
         START:
-            if (omittedNodeCreator == null || useNormal) {
-                while (true) {
+            if (omittedItemCreator == null || useNormal)
+            {
+                while (true)
+                {
+                    var lastIsSeparator = false;
                     T node;
-                    if (nodeCreator(out node)) {
-                        if (singleNode == null) {
-                            singleNode = node;
+                    if (itemCreator(out node))
+                    {
+                        if (singleItem == null)
+                        {
+                            singleItem = node;
                         }
-                        else {
-                            if (nodeList == null) {
-                                nodeList = new List<T>();
-                                nodeList.Add(singleNode);
+                        else
+                        {
+                            if (itemList == null)
+                            {
+                                itemList = new List<T>();
+                                itemList.Add(singleItem);
                             }
-                            nodeList.Add(node);
+                            itemList.Add(node);
                         }
                         SyntaxToken separator;
-                        if (Token(separatorKind, out separator)) {
-                            if (singleSeparator == null) {
+                        if (Token(separatorKind, out separator))
+                        {
+                            lastIsSeparator = true;
+                            if (singleSeparator == null)
+                            {
                                 singleSeparator = separator;
                             }
-                            else {
-                                if (separatorList == null) {
+                            else
+                            {
+                                if (separatorList == null)
+                                {
                                     separatorList = new List<SyntaxToken>();
                                     separatorList.Add(singleSeparator.Value);
                                 }
                                 separatorList.Add(separator);
                             }
                         }
-                        else {
+                        else
+                        {
                             break;
                         }
                     }
-                    else {
-                        if ((singleSeparator != null || separatorList != null) && !allowTrailingSeparator) {
-                            ErrorAndThrow("Node expected.");
+                    else
+                    {
+                        if (!allowTrailingSeparator && lastIsSeparator)
+                        {
+                            ErrorAndThrow("Item expected.");
                         }
                         break;
                     }
                 }
             }
-            else {
-                if (PeekToken(0, separatorKind)) {
-                    while (true) {
+            else
+            {
+                if (PeekToken(0, separatorKind))
+                {
+                    while (true)
+                    {
                         SyntaxToken separator;
-                        if (Token(separatorKind, out separator)) {
-                            if (singleSeparator == null) {
+                        if (Token(separatorKind, out separator))
+                        {
+                            if (singleSeparator == null)
+                            {
                                 singleSeparator = separator;
                             }
-                            else {
-                                if (separatorList == null) {
+                            else
+                            {
+                                if (separatorList == null)
+                                {
                                     separatorList = new List<SyntaxToken>();
                                     separatorList.Add(singleSeparator.Value);
                                 }
                                 separatorList.Add(separator);
                             }
                         }
-                        else {
+                        else
+                        {
                             break;
                         }
                     }
                     var separatorCount = separatorList != null ? separatorList.Count : (singleSeparator != null ? 1 : 0);
-                    if (separatorCount > 0) {
-                        nodeList = new List<T>(separatorCount + 1);
-                        for (var i = 0; i < separatorCount + 1; ++i) {
-                            nodeList[i] = omittedNodeCreator();
+                    if (separatorCount > 0)
+                    {
+                        itemList = new List<T>(separatorCount + 1);
+                        for (var i = 0; i < separatorCount + 1; ++i)
+                        {
+                            itemList[i] = omittedItemCreator();
                         }
                     }
                 }
-                else if (nodeCreator != null) {
+                else if (itemCreator != null)
+                {
                     useNormal = true;
                     goto START;
                 }
             }
-            if (nodeList != null) {
-                return SyntaxFactory.SeparatedList(nodeList, (IEnumerable<SyntaxToken>)separatorList ?? new[] { singleSeparator.Value });
+            if (itemList != null)
+            {
+                return SyntaxFactory.SeparatedList(itemList, (IEnumerable<SyntaxToken>)separatorList ?? new[] { singleSeparator.Value });
             }
-            if (singleNode != null) {
-                if (singleSeparator != null) {
-                    return SyntaxFactory.SeparatedList(new[] { singleNode }, new[] { singleSeparator.Value });
+            if (singleItem != null)
+            {
+                if (singleSeparator != null)
+                {
+                    return SyntaxFactory.SeparatedList(new[] { singleItem }, new[] { singleSeparator.Value });
                 }
-                return SyntaxFactory.SingletonSeparatedList(singleNode);
+                return SyntaxFactory.SingletonSeparatedList(singleItem);
             }
             return default(SeparatedSyntaxList<T>);
         }
 
         //
-        protected bool Expression(out ExpressionSyntax result) {
+        protected bool Expression(out ExpressionSyntax result)
+        {
 
             result = null;
             return false;
         }
-        protected void ExpressionExpectedErrorAndThrow() {
+        protected void ExpressionExpectedErrorAndThrow()
+        {
             ErrorAndThrow("Expression expected.");
         }
-        protected ExpressionSyntax ExpressionExpected() {
+        protected ExpressionSyntax ExpressionExpected()
+        {
             ExpressionSyntax result;
-            if (!Expression(out result)) {
+            if (!Expression(out result))
+            {
                 ExpressionExpectedErrorAndThrow();
             }
             return result;
         }
-        protected bool AssignmentExpression(out AssignmentExpressionSyntax result) {
+        protected bool AssignmentExpression(out AssignmentExpressionSyntax result)
+        {
 
 
             result = null;
             return false;
         }
         private bool _inConditionalExprCondition;
-        protected bool ConditionalExpression(out ExpressionSyntax result) {
+        protected bool ConditionalExpression(out ExpressionSyntax result)
+        {
             ExpressionSyntax condition;
             _inConditionalExprCondition = true;
             var b = CoalesceExpression(out condition);
             _inConditionalExprCondition = false;
-            if (b) {
+            if (b)
+            {
                 SyntaxToken question, colon = default(SyntaxToken);
                 ExpressionSyntax whenTrue = null, whenFalse = null;
-                if (Token('?', out question)) {
+                if (Token('?', out question))
+                {
                     whenTrue = ExpressionExpected();
                     colon = TokenExpected(':');
                     whenFalse = ExpressionExpected();
                 }
-                if (whenTrue == null) {
+                if (whenTrue == null)
+                {
                     result = condition;
                 }
-                else {
+                else
+                {
                     result = SyntaxFactory.ConditionalExpression(condition, question, whenTrue, colon, whenFalse);
                 }
                 return true;
@@ -452,20 +515,26 @@ namespace CSharpParser {
             result = null;
             return false;
         }
-        protected bool CoalesceExpression(out ExpressionSyntax result) {
+        protected bool CoalesceExpression(out ExpressionSyntax result)
+        {
             ExpressionSyntax left;
-            if (LogicalOrExpression(out left)) {
+            if (LogicalOrExpression(out left))
+            {
                 SyntaxToken st;
                 ExpressionSyntax right = null;
-                if (Token((int)TokenKind.QuestionQuestion, out st)) {
-                    if (!CoalesceExpression(out right)) {
+                if (Token((int)TokenKind.QuestionQuestion, out st))
+                {
+                    if (!CoalesceExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                 }
-                if (right == null) {
+                if (right == null)
+                {
                     result = left;
                 }
-                else {
+                else
+                {
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.CoalesceExpression, left, st, right);
                 }
                 return true;
@@ -473,12 +542,16 @@ namespace CSharpParser {
             result = null;
             return false;
         }
-        protected bool LogicalOrExpression(out ExpressionSyntax result) {
-            if (LogicalAndExpression(out result)) {
+        protected bool LogicalOrExpression(out ExpressionSyntax result)
+        {
+            if (LogicalAndExpression(out result))
+            {
                 SyntaxToken st;
-                while (Token((int)TokenKind.BarBar, out st)) {
+                while (Token((int)TokenKind.BarBar, out st))
+                {
                     ExpressionSyntax right;
-                    if (!LogicalAndExpression(out right)) {
+                    if (!LogicalAndExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.LogicalOrExpression, result, st, right);
@@ -486,12 +559,16 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool LogicalAndExpression(out ExpressionSyntax result) {
-            if (BitwiseOrExpression(out result)) {
+        protected bool LogicalAndExpression(out ExpressionSyntax result)
+        {
+            if (BitwiseOrExpression(out result))
+            {
                 SyntaxToken st;
-                while (Token((int)TokenKind.AmpersandAmpersand, out st)) {
+                while (Token((int)TokenKind.AmpersandAmpersand, out st))
+                {
                     ExpressionSyntax right;
-                    if (!BitwiseOrExpression(out right)) {
+                    if (!BitwiseOrExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.LogicalAndExpression, result, st, right);
@@ -499,12 +576,16 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool BitwiseOrExpression(out ExpressionSyntax result) {
-            if (ExclusiveOrExpression(out result)) {
+        protected bool BitwiseOrExpression(out ExpressionSyntax result)
+        {
+            if (ExclusiveOrExpression(out result))
+            {
                 SyntaxToken st;
-                while (Token('|', out st)) {
+                while (Token('|', out st))
+                {
                     ExpressionSyntax right;
-                    if (!ExclusiveOrExpression(out right)) {
+                    if (!ExclusiveOrExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.BitwiseOrExpression, result, st, right);
@@ -512,12 +593,16 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool ExclusiveOrExpression(out ExpressionSyntax result) {
-            if (BitwiseAndExpression(out result)) {
+        protected bool ExclusiveOrExpression(out ExpressionSyntax result)
+        {
+            if (BitwiseAndExpression(out result))
+            {
                 SyntaxToken st;
-                while (Token('^', out st)) {
+                while (Token('^', out st))
+                {
                     ExpressionSyntax right;
-                    if (!BitwiseAndExpression(out right)) {
+                    if (!BitwiseAndExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.ExclusiveOrExpression, result, st, right);
@@ -525,12 +610,16 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool BitwiseAndExpression(out ExpressionSyntax result) {
-            if (EqualityExpression(out result)) {
+        protected bool BitwiseAndExpression(out ExpressionSyntax result)
+        {
+            if (EqualityExpression(out result))
+            {
                 SyntaxToken st;
-                while (Token('&', out st)) {
+                while (Token('&', out st))
+                {
                     ExpressionSyntax right;
-                    if (!EqualityExpression(out right)) {
+                    if (!EqualityExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(SyntaxKind.BitwiseAndExpression, result, st, right);
@@ -538,22 +627,29 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool EqualityExpression(out ExpressionSyntax result) {
-            if (RelationalExpression(out result)) {
-                SyntaxToken st;
-                while (true) {
+        protected bool EqualityExpression(out ExpressionSyntax result)
+        {
+            if (RelationalExpression(out result))
+            {
+                while (true)
+                {
                     SyntaxKind kind;
-                    if (Token((int)TokenKind.EqualsEquals, out st)) {
+                    SyntaxToken st;
+                    if (Token((int)TokenKind.EqualsEquals, out st))
+                    {
                         kind = SyntaxKind.EqualsExpression;
                     }
-                    else if (Token((int)TokenKind.ExclamationEquals, out st)) {
+                    else if (Token((int)TokenKind.ExclamationEquals, out st))
+                    {
                         kind = SyntaxKind.NotEqualsExpression;
                     }
-                    else {
+                    else
+                    {
                         break;
                     }
                     ExpressionSyntax right;
-                    if (!RelationalExpression(out right)) {
+                    if (!RelationalExpression(out right))
+                    {
                         ExpressionExpectedErrorAndThrow();
                     }
                     result = SyntaxFactory.BinaryExpression(kind, result, st, right);
@@ -562,45 +658,59 @@ namespace CSharpParser {
             return result != null;
         }
         private bool _inIsExprType;
-        protected bool RelationalExpression(out ExpressionSyntax result) {
-            if (ShiftExpression(out result)) {
-                SyntaxToken st;
-                while (true) {
+        protected bool RelationalExpression(out ExpressionSyntax result)
+        {
+            if (ShiftExpression(out result))
+            {
+                while (true)
+                {
                     SyntaxKind kind;
-                    if (Token('<', out st)) {
+                    SyntaxToken st;
+                    if (Token('<', out st))
+                    {
                         kind = SyntaxKind.LessThanExpression;
                     }
-                    else if (Token((int)TokenKind.LessThanEquals, out st)) {
+                    else if (Token((int)TokenKind.LessThanEquals, out st))
+                    {
                         kind = SyntaxKind.LessThanOrEqualExpression;
                     }
-                    else if (Token('>', out st)) {
+                    else if (Token('>', out st))
+                    {
                         kind = SyntaxKind.GreaterThanExpression;
                     }
-                    else if (Token((int)TokenKind.GreaterThanEquals, out st)) {
+                    else if (Token((int)TokenKind.GreaterThanEquals, out st))
+                    {
                         kind = SyntaxKind.GreaterThanOrEqualExpression;
                     }
-                    else if (Keyword(SyntaxKind.IsKeyword, out st)) {
+                    else if (Keyword(SyntaxKind.IsKeyword, out st))
+                    {
                         kind = SyntaxKind.IsExpression;
                     }
-                    else if (Keyword(SyntaxKind.AsKeyword, out st)) {
+                    else if (Keyword(SyntaxKind.AsKeyword, out st))
+                    {
                         kind = SyntaxKind.AsExpression;
                     }
-                    else {
+                    else
+                    {
                         break;
                     }
                     ExpressionSyntax right;
-                    if (kind == SyntaxKind.IsExpression) {
+                    if (kind == SyntaxKind.IsExpression)
+                    {
                         //object o = null;
                         //var x = o is int ? 1:2;
                         _inIsExprType = true;
                         right = TypeExpected();
                         _inIsExprType = false;
                     }
-                    else if (kind == SyntaxKind.AsExpression) {
+                    else if (kind == SyntaxKind.AsExpression)
+                    {
                         right = TypeExpected();
                     }
-                    else {
-                        if (!ShiftExpression(out right)) {
+                    else
+                    {
+                        if (!ShiftExpression(out right))
+                        {
                             ExpressionExpectedErrorAndThrow();
                         }
                     }
@@ -609,112 +719,374 @@ namespace CSharpParser {
             }
             return result != null;
         }
-        protected bool ShiftExpression(out ExpressionSyntax result) {
+        protected bool ShiftExpression(out ExpressionSyntax result)
+        {
+            if (AdditiveExpression(out result))
+            {
+                while (true)
+                {
+                    SyntaxKind kind;
+                    SyntaxToken st;
+                    if (Token((int)TokenKind.LessThanLessThan, out st))
+                    {
+                        kind = SyntaxKind.LeftShiftExpression;
+                    }
+                    else if (Token('>', '>', (int)TokenKind.GreaterThanGreaterThan, out st))
+                    {
+                        kind = SyntaxKind.RightShiftExpression;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    ExpressionSyntax right;
+                    if (!AdditiveExpression(out right))
+                    {
+                        ExpressionExpectedErrorAndThrow();
+                    }
+                    result = SyntaxFactory.BinaryExpression(kind, result, st, right);
+                }
+            }
+            return result != null;
+        }
+        protected bool AdditiveExpression(out ExpressionSyntax result)
+        {
+            if (MultiplicativeExpression(out result))
+            {
+                while (true)
+                {
+                    SyntaxKind kind;
+                    SyntaxToken st;
+                    if (Token('+', out st))
+                    {
+                        kind = SyntaxKind.AddExpression;
+                    }
+                    else if (Token('-', out st))
+                    {
+                        kind = SyntaxKind.SubtractExpression;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    ExpressionSyntax right;
+                    if (!MultiplicativeExpression(out right))
+                    {
+                        ExpressionExpectedErrorAndThrow();
+                    }
+                    result = SyntaxFactory.BinaryExpression(kind, result, st, right);
+                }
+            }
+            return result != null;
+        }
+        protected bool MultiplicativeExpression(out ExpressionSyntax result)
+        {
+            if (UnaryExpression(out result))
+            {
+                while (true)
+                {
+                    SyntaxKind kind;
+                    SyntaxToken st;
+                    if (Token('*', out st))
+                    {
+                        kind = SyntaxKind.MultiplyExpression;
+                    }
+                    else if (Token('/', out st))
+                    {
+                        kind = SyntaxKind.DivideExpression;
+                    }
+                    else if (Token('%', out st))
+                    {
+                        kind = SyntaxKind.ModuloExpression;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    ExpressionSyntax right;
+                    if (!UnaryExpression(out right))
+                    {
+                        ExpressionExpectedErrorAndThrow();
+                    }
+                    result = SyntaxFactory.BinaryExpression(kind, result, st, right);
+                }
+            }
+            return result != null;
+        }
+        protected bool UnaryExpression(out ExpressionSyntax result)
+        {
+            //int await = 0;
+            //var x = await + 1;
+            SyntaxKind kind = SyntaxKind.None;
+            SyntaxToken st;
+            if (Token('+', out st))
+            {
+                kind = SyntaxKind.UnaryPlusExpression;
+            }
+            else if (Token('-', out st))
+            {
+                kind = SyntaxKind.UnaryMinusExpression;
+            }
+            else if (Token('!', out st))
+            {
+                kind = SyntaxKind.LogicalNotExpression;
+            }
+            else if (Token('~', out st))
+            {
+                kind = SyntaxKind.BitwiseNotExpression;
+            }
+            else if (Token((int)TokenKind.PlusPlus, out st))
+            {
+                kind = SyntaxKind.PreIncrementExpression;
+            }
+            else if (Token((int)TokenKind.MinusMinus, out st))
+            {
+                kind = SyntaxKind.PreDecrementExpression;
+            }
+            else
+            {
 
+            }
+            if (kind != SyntaxKind.None)
+            {
+                //result = SyntaxFactory.PrefixUnaryExpression(kind, st, );
+            }
+
+            return result != null;
+        }
+        protected bool PrimaryExpression(out ExpressionSyntax result)
+        {
             result = null;
-            return false;
+            var token = GetToken();
+            var tokenText = token.Value;
+            switch (token.Kind)
+            {
+                case (int)TokenKind.NormalString:
+                case (int)TokenKind.VerbatimString:
+                    ConsumeToken();
+                    result = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
+                        AttachToken(SyntaxFactory.Literal(tokenText), token));
+                    break;
+                case (int)TokenKind.Char:
+                    ConsumeToken();
+                    result = SyntaxFactory.LiteralExpression(SyntaxKind.CharacterLiteralExpression,
+                        AttachToken(SyntaxFactory.Literal(tokenText[0]), token));
+                    break;
+                case (int)TokenKind.Number:
+                    ConsumeToken();
+                    result = SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression,
+                        AttachToken(SyntaxFactory.ParseToken(tokenText), token));
+                    break;
+                case '(':
+                    ConsumeToken();
+                    result = SyntaxFactory.ParenthesizedExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.OpenParenToken), token), ExpressionExpected(),
+                        TokenExpected(')'));
+                    break;
+                case (int)TokenKind.NormalIdentifier:
+                    switch (tokenText)
+                    {
+                        case "true":
+                            ConsumeToken();
+                            result = SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression,
+                                AttachToken(SyntaxFactory.Token(SyntaxKind.TrueKeyword), token));
+                            break;
+                        case "false":
+                            ConsumeToken();
+                            result = SyntaxFactory.LiteralExpression(SyntaxKind.FalseLiteralExpression,
+                                AttachToken(SyntaxFactory.Token(SyntaxKind.FalseKeyword), token));
+                            break;
+                        case "null":
+                            ConsumeToken();
+                            result = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression,
+                                AttachToken(SyntaxFactory.Token(SyntaxKind.NullKeyword), token));
+                            break;
+                        case "this":
+                            ConsumeToken();
+                            result = SyntaxFactory.ThisExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.ThisKeyword), token));
+                            break;
+                        case "base":
+                            ConsumeToken();
+                            result = SyntaxFactory.BaseExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.BaseKeyword), token));
+                            break;
+                        case "typeof":
+                            ConsumeToken();
+                            result = SyntaxFactory.TypeOfExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.TypeOfKeyword), token),
+                                TokenExpected('('), TypeExpected(), TokenExpected(')'));
+                            break;
+                        case "default":
+                            ConsumeToken();
+                            result = SyntaxFactory.DefaultExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.DefaultKeyword), token),
+                                TokenExpected('('), TypeExpected(), TokenExpected(')'));
+                            break;
+                        case "checked":
+                            ConsumeToken();
+                            result = SyntaxFactory.CheckedExpression(SyntaxKind.CheckedExpression, AttachToken(SyntaxFactory.Token(SyntaxKind.CheckedKeyword), token),
+                                TokenExpected('('), ExpressionExpected(), TokenExpected(')'));
+                            break;
+                        case "unchecked":
+                            ConsumeToken();
+                            result = SyntaxFactory.CheckedExpression(SyntaxKind.UncheckedExpression, AttachToken(SyntaxFactory.Token(SyntaxKind.UncheckedKeyword), token),
+                                TokenExpected('('), ExpressionExpected(), TokenExpected(')'));
+                            break;
+                        case "async":
+                            {
+                                var token2 = GetToken(1);
+                                if (token2.IsKeyword("delegate"))
+                                {
+                                    ConsumeToken();
+                                    result = AnonymousMethodExpression(AttachToken(SyntaxFactory.Token(SyntaxKind.AsyncKeyword), token));
+                                }
+                            }
+                            break;
+                        case "delegate":
+                            result = AnonymousMethodExpression(default(SyntaxToken));
+                            break;
+                        case "new":
+                            ConsumeToken();
+
+
+                            break;
+                    }
+                    break;
+            }
+            if (result == null)
+            {
+                result = PredefinedType();
+                if (result == null)
+                {
+
+                }
+            }
+
+            return result != null;
+        }
+        private AnonymousMethodExpressionSyntax AnonymousMethodExpression(SyntaxToken asyncKeyword)
+        {
+            return SyntaxFactory.AnonymousMethodExpression(asyncKeyword, KeywordExpected(SyntaxKind.DelegateKeyword), null, null);
         }
 
-        protected bool Type(out TypeSyntax result) {
-            TypeSyntax temp;
+        private static readonly HashSet<string> _predefinedTypeNameSet = new HashSet<string> {
+            "sbyte","byte","short","ushort","int","uint","long","ulong","decimal","float","double","bool","string","char","object","void"
+        };
+        protected PredefinedTypeSyntax PredefinedType()
+        {
             SyntaxToken st;
-            if (ReservedKeyword(_predefinedTypeNameSet, out st)) {
-                temp = SyntaxFactory.PredefinedType(st);
+            if (Keywords(_predefinedTypeNameSet, out st))
+            {
+                return SyntaxFactory.PredefinedType(st);
             }
-            else {
+            return null;
+        }
+
+        protected bool Type(out TypeSyntax result)
+        {
+            SyntaxToken st;
+            result = PredefinedType();
+            if (result == null)
+            {
                 NameSyntax ns;
-                if (Name(out ns)) {
-                    temp = ns;
+                if (Name(out ns))
+                {
+                    result = ns;
                 }
-                else {
+                else
+                {
                     result = null;
                     return false;
                 }
             }
-            if (PeekToken(0, '?')) {
+            if (PeekToken(0, '?'))
+            {
                 var get = true;
-                if (_inConditionalExprCondition && _inIsExprType) {
+                if (_inConditionalExprCondition && _inIsExprType)
+                {
                     get = !PeekToken(1, (int)TokenKind.NormalIdentifier, '(');//todo?
                 }
-                if (get) {
+                if (get)
+                {
                     Token('?', out st);
-                    temp = SyntaxFactory.NullableType(temp, st);
+                    result = SyntaxFactory.NullableType(result, st);
                 }
             }
-            if (PeekToken(0, '[')) {
-                temp = SyntaxFactory.ArrayType(temp, List(_ArrayRankSpecifierSyntaxCreator));
+            if (PeekToken(0, '['))
+            {
+                result = SyntaxFactory.ArrayType(result, List(_ArrayRankSpecifierSyntaxCreator));
             }
-            result = temp;
             return true;
         }
-        protected TypeSyntax TypeExpected() {
+        protected TypeSyntax TypeExpected()
+        {
             TypeSyntax result;
-            if (!Type(out result)) {
+            if (!Type(out result))
+            {
                 ErrorAndThrow("Type expected.");
             }
             return result;
         }
         private bool _allowArrayRankSpecifierExprs;
-        protected bool ArrayRankSpecifier(out ArrayRankSpecifierSyntax result) {
+        protected bool ArrayRankSpecifier(out ArrayRankSpecifierSyntax result)
+        {
             SyntaxToken st;
-            if (Token('[', out st)) {
-                var sizes = SeparatedList(_allowArrayRankSpecifierExprs ? _ExpressionSyntaxCreator : null, ',', false, _OmittedArraySizeExpressionSyntaxCreator);
-                result = SyntaxFactory.ArrayRankSpecifier(st, sizes, TokenExpected(']'));
+            if (Token('[', out st))
+            {
+                result = SyntaxFactory.ArrayRankSpecifier(st,
+                    SeparatedList(_allowArrayRankSpecifierExprs ? _ExpressionSyntaxCreator : null, ',', false, _OmittedArraySizeExpressionSyntaxCreator),
+                    TokenExpected(']'));
                 return true;
             }
             result = null;
             return false;
         }
-        private static readonly HashSet<string> _predefinedTypeNameSet = new HashSet<string> {
-            "sbyte","byte","short","ushort","int","uint","long","ulong","decimal","float","double","bool","string","char","object","void"
-        };
-        //protected bool PredefinedType(out PredefinedTypeSyntax syntax) {
-        //    SyntaxToken st;
-        //    if (ReservedKeyword(_predefinedTypeNameSet, out st)) {
-        //        syntax = SyntaxFactory.PredefinedType(st);
-        //        return true;
-        //    }
-        //    syntax = null;
-        //    return false;
-        //}
 
-        protected bool Name(out NameSyntax result) {
+        protected bool Name(out NameSyntax result)
+        {
             NameSyntax temp;
             AliasQualifiedNameSyntax aqn;
-            if (AliasQualifiedName(out aqn)) {
+            if (AliasQualifiedName(out aqn))
+            {
                 temp = aqn;
             }
-            else {
+            else
+            {
                 SimpleNameSyntax sn;
-                if (SimpleName(out sn)) {
+                if (SimpleName(out sn))
+                {
                     temp = sn;
                 }
-                else {
+                else
+                {
                     result = null;
                     return false;
                 }
             }
-            while (true) {
+            while (true)
+            {
                 SyntaxToken dot;
-                if (Token('.', out dot)) {
+                if (Token('.', out dot))
+                {
                     temp = SyntaxFactory.QualifiedName(temp, dot, SimpleNameExpected());
                 }
-                else {
+                else
+                {
                     break;
                 }
             }
             result = temp;
             return true;
         }
-        protected bool AliasQualifiedName(out AliasQualifiedNameSyntax result) {
+        protected bool AliasQualifiedName(out AliasQualifiedNameSyntax result)
+        {
             if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier)
-                && PeekToken(1, (int)TokenKind.ColonColon)) {
+                && PeekToken(1, (int)TokenKind.ColonColon))
+            {
                 IdentifierNameSyntax alias;
                 SyntaxToken globalToken;
-                if (Keyword(SyntaxKind.GlobalKeyword, out globalToken)) {
+                if (Keyword(SyntaxKind.GlobalKeyword, out globalToken))
+                {
                     alias = SyntaxFactory.IdentifierName(globalToken);
                 }
-                else {
+                else
+                {
                     IdentifierName(out alias);
                 }
                 SyntaxToken colonColonToken;
@@ -725,14 +1097,18 @@ namespace CSharpParser {
             result = null;
             return false;
         }
-        protected bool SimpleName(out SimpleNameSyntax result) {
-            if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier)) {
-                if (PeekToken(1, '<')) {
+        protected bool SimpleName(out SimpleNameSyntax result)
+        {
+            if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier))
+            {
+                if (PeekToken(1, '<'))
+                {
                     GenericNameSyntax gn;
                     GenericName(out gn);
                     result = gn;
                 }
-                else {
+                else
+                {
                     IdentifierNameSyntax i;
                     IdentifierName(out i);
                     result = i;
@@ -742,35 +1118,42 @@ namespace CSharpParser {
             result = null;
             return false;
         }
-        protected SimpleNameSyntax SimpleNameExpected() {
+        protected SimpleNameSyntax SimpleNameExpected()
+        {
             SimpleNameSyntax result;
-            if (!SimpleName(out result)) {
+            if (!SimpleName(out result))
+            {
                 ErrorAndThrow("Simple name expected.");
             }
             return result;
         }
-        protected bool IdentifierName(out IdentifierNameSyntax result) {
+        protected bool IdentifierName(out IdentifierNameSyntax result)
+        {
             SyntaxToken identifier;
-            if (Identifier(out identifier)) {
+            if (Identifier(out identifier))
+            {
                 result = SyntaxFactory.IdentifierName(identifier);
                 return true;
             }
             result = null;
             return false;
         }
-        protected bool GenericName(out GenericNameSyntax result) {
+        protected bool GenericName(out GenericNameSyntax result)
+        {
             SyntaxToken identifier;
-            if (Identifier(out identifier)) {
-                var typeArgumentList = TypeArgumentListExpected();
-                result = SyntaxFactory.GenericName(identifier, typeArgumentList);
+            if (Identifier(out identifier))
+            {
+                result = SyntaxFactory.GenericName(identifier, TypeArgumentListExpected());
                 return true;
             }
             result = null;
             return false;
         }
-        protected bool TypeArgumentList(out TypeArgumentListSyntax result) {
+        protected bool TypeArgumentList(out TypeArgumentListSyntax result)
+        {
             SyntaxToken lessThanToken;
-            if (Token('<', out lessThanToken)) {
+            if (Token('<', out lessThanToken))
+            {
                 var arguments = SeparatedList(_TypeSyntaxCreator, ',', false, _OmittedTypeArgumentSyntaxCreator);
                 result = SyntaxFactory.TypeArgumentList(lessThanToken, arguments, TokenExpected('>'));
                 return true;
@@ -778,19 +1161,25 @@ namespace CSharpParser {
             result = null;
             return false;
         }
-        protected TypeArgumentListSyntax TypeArgumentListExpected() {
+        protected TypeArgumentListSyntax TypeArgumentListExpected()
+        {
             TypeArgumentListSyntax result;
-            if (!TypeArgumentList(out result)) {
+            if (!TypeArgumentList(out result))
+            {
                 ErrorAndThrow("Type argument list expected.");
             }
             return result;
         }
 
+        //
+        //
+        //
 
-
-        protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result) {
+        protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result)
+        {
             SyntaxToken externKeyword;
-            if (Keyword(SyntaxKind.ExternKeyword, out externKeyword)) {
+            if (Keyword(SyntaxKind.ExternKeyword, out externKeyword))
+            {
                 var aliasKeyword = KeywordExpected(SyntaxKind.AliasKeyword);
                 var identifier = IdentifierExpected();
                 var semicolonToken = TokenExpected(';');

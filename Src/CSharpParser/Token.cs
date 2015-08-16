@@ -29,8 +29,8 @@ namespace CSharpParser
         LessThanLessThan,// <<
         LessThanLessThanEquals,// <<=
         GreaterThanEquals,// >=
-        //GreaterThanGreaterThan,// >>
-        //GreaterThanGreaterThanEquals,// >>=
+        GreaterThanGreaterThan,// >> (>|> not recognized by lexer)
+        GreaterThanGreaterThanEquals,// >>= (>|>= not recognized by lexer)
         SlashEquals,// /=
         AsteriskEquals,// *=
         CaretEquals,// ^=

@@ -1,35 +1,45 @@
 ﻿using System.Globalization;
 
-namespace CSharpParser {
-    public static class Extensions {
+namespace CSharpParser
+{
+    public static class Extensions
+    {
         public const string SystemUri = "https://github.com/knat/CSharpParser";
         //
         //
         //
-        public static string InvFormat(this string format, params string[] args) {
+        public static string InvFormat(this string format, params string[] args)
+        {
             return StringBuilderBuffer.Acquire().AppendFormat(CultureInfo.InvariantCulture, format, args).ToStringAndRelease();
         }
 
-        public static string ToInvString(this int value) {
+        public static string ToInvString(this int value)
+        {
             return value.ToString(CultureInfo.InvariantCulture);
         }
 
         //
-        public static int AggregateHash(int hash, int newValue) {
-            unchecked {
+        public static int AggregateHash(int hash, int newValue)
+        {
+            unchecked
+            {
                 return hash * 31 + newValue;
             }
         }
-        public static int CombineHash(int a, int b) {
-            unchecked {
+        public static int CombineHash(int a, int b)
+        {
+            unchecked
+            {
                 int hash = 17;
                 hash = hash * 31 + a;
                 hash = hash * 31 + b;
                 return hash;
             }
         }
-        public static int CombineHash(int a, int b, int c) {
-            unchecked {
+        public static int CombineHash(int a, int b, int c)
+        {
+            unchecked
+            {
                 int hash = 17;
                 hash = hash * 31 + a;
                 hash = hash * 31 + b;

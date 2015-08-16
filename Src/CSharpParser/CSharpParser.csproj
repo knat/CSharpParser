@@ -58,14 +58,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ParsingContext.cs" />
-    <Compile Include="CS.cs" />
+    <None Include="CS.cs" />
     <Compile Include="Diagnostics.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="Lexer.cs" />
     <Compile Include="ParserBase.cs" />
     <Compile Include="ParsingException.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="SimpleStringReader.cs" />
+    <None Include="SimpleStringReader.cs" />
     <Compile Include="StringBuilderBuffer.cs" />
     <Compile Include="TextSpan.cs" />
     <Compile Include="Token.cs" />
