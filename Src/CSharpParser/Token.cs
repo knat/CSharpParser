@@ -29,8 +29,8 @@ namespace CSharpParser
         LessThanLessThan,// <<
         LessThanLessThanEquals,// <<=
         GreaterThanEquals,// >=
-        GreaterThanGreaterThan,// >> (>|> not recognized by lexer)
-        GreaterThanGreaterThanEquals,// >>= (>|>= not recognized by lexer)
+        //GreaterThanGreaterThan,// >> (>|> not recognized by lexer)
+        //GreaterThanGreaterThanEquals,// >>= (>|>= not recognized by lexer)
         SlashEquals,// /=
         AsteriskEquals,// *=
         CaretEquals,// ^=
@@ -48,10 +48,12 @@ namespace CSharpParser
             Kind = kind;
             Value = value;
             TextSpan = textSpan;
+            Index = -1;
         }
         public readonly int Kind;
         public readonly string Value;//for TokenKind.NormalIdentifier to TokenKind.Number
         public readonly TextSpan TextSpan;
+        public int Index;
         public TokenKind TokenKind
         {
             get

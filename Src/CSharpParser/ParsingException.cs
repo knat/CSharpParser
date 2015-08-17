@@ -7,6 +7,6 @@ namespace CSharpParser
         private ParsingException()
         {
         }
-        internal static readonly ParsingException Instance = new ParsingException();
+        public static readonly ParsingException Instance = new ParsingException();
     }
 }

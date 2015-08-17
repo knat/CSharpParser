@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using Microsoft.CodeAnalysis;
+using System.Globalization;
 
 namespace CSharpParser
 {
@@ -16,6 +17,16 @@ namespace CSharpParser
         public static string ToInvString(this int value)
         {
             return value.ToString(CultureInfo.InvariantCulture);
+        }
+        private const string _syntaxAnnotationKindName = "CSharpParserToken";
+        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int index)
+        {
+            return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName, index.ToInvString()));
+        }
+        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int index1, int index2)
+        {
+            return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName,
+                "_" + index1.ToInvString() + "_" + index2.ToInvString()));
         }
 
         //

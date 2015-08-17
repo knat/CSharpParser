@@ -7,14 +7,14 @@ namespace CSharpParser
         public ParsingContext()
         {
             DiagnosticList = new List<Diagnostic>();
-            _tokenList = new List<Token>();
+            TokenList = new List<Token>();
         }
         public readonly List<Diagnostic> DiagnosticList;
-        private readonly List<Token> _tokenList;
+        public readonly List<Token> TokenList;
         public virtual void Reset()
         {
             DiagnosticList.Clear();
-            _tokenList.Clear();
+            TokenList.Clear();
         }
 
         public void AddDiag(DiagnosticSeverity severity, int code, string message, TextSpan textSpan)
@@ -81,13 +81,13 @@ namespace CSharpParser
         //    return new Marker(this);
         //}
         //
-        internal string AddToken(Token token)
-        {
-            var list = _tokenList;
-            var idxStr = list.Count.ToInvString();
-            list.Add(token);
-            return idxStr;
-        }
+        //internal string AddToken(Token token)
+        //{
+        //    var list = _tokenList;
+        //    var idxStr = list.Count.ToInvString();
+        //    list.Add(token);
+        //    return idxStr;
+        //}
 
     }
 
