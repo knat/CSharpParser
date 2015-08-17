@@ -9,10 +9,10 @@ namespace CSharpParser
         //
         //
         //
-        public static string InvFormat(this string format, params string[] args)
-        {
-            return StringBuilderBuffer.Acquire().AppendFormat(CultureInfo.InvariantCulture, format, args).ToStringAndRelease();
-        }
+        //public static string InvFormat(this string format, params string[] args)
+        //{
+        //    return StringBuilderBuffer.Acquire().AppendFormat(CultureInfo.InvariantCulture, format, args).ToStringAndRelease();
+        //}
 
         public static string ToInvString(this int value)
         {
@@ -30,34 +30,34 @@ namespace CSharpParser
         }
 
         //
-        public static int AggregateHash(int hash, int newValue)
-        {
-            unchecked
-            {
-                return hash * 31 + newValue;
-            }
-        }
-        public static int CombineHash(int a, int b)
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + a;
-                hash = hash * 31 + b;
-                return hash;
-            }
-        }
-        public static int CombineHash(int a, int b, int c)
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + a;
-                hash = hash * 31 + b;
-                hash = hash * 31 + c;
-                return hash;
-            }
-        }
+        //public static int AggregateHash(int hash, int newValue)
+        //{
+        //    unchecked
+        //    {
+        //        return hash * 31 + newValue;
+        //    }
+        //}
+        //public static int CombineHash(int a, int b)
+        //{
+        //    unchecked
+        //    {
+        //        int hash = 17;
+        //        hash = hash * 31 + a;
+        //        hash = hash * 31 + b;
+        //        return hash;
+        //    }
+        //}
+        //public static int CombineHash(int a, int b, int c)
+        //{
+        //    unchecked
+        //    {
+        //        int hash = 17;
+        //        hash = hash * 31 + a;
+        //        hash = hash * 31 + b;
+        //        hash = hash * 31 + c;
+        //        return hash;
+        //    }
+        //}
         //
         //internal static void CreateAndAdd<T>(ref List<T> list, T item) {
         //    if (list == null) {

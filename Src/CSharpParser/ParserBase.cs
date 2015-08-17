@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace CSharpParser
 {
     public delegate bool Creator<T>(out T item);//where T : SyntaxNode;
+    public delegate bool BoolCreator<T>(bool arg, out T item);//where T : SyntaxNode;
     public abstract class ParserBase
     {
         protected ParserBase()
@@ -24,7 +25,6 @@ namespace CSharpParser
             _context = context;
             _tokenIndex = context.TokenList.Count;
             //
-            _allowArrayRankSpecifierExprs = false;
         }
         protected virtual void Clear()
         {
@@ -45,7 +45,7 @@ namespace CSharpParser
 
         protected readonly Creator<ExpressionSyntax> _ExpressionSyntaxCreator;
         protected readonly Creator<TypeSyntax> _TypeSyntaxCreator;
-        protected readonly Creator<ArrayRankSpecifierSyntax> _ArrayRankSpecifierSyntaxCreator;
+        protected readonly BoolCreator<ArrayRankSpecifierSyntax> _ArrayRankSpecifierSyntaxCreator;
 
         protected static readonly Func<OmittedArraySizeExpressionSyntax> _OmittedArraySizeExpressionSyntaxCreator = SyntaxFactory.OmittedArraySizeExpression;
         protected static readonly Func<OmittedTypeArgumentSyntax> _OmittedTypeArgumentSyntaxCreator = SyntaxFactory.OmittedTypeArgument;
@@ -55,10 +55,6 @@ namespace CSharpParser
         protected void Error(int code, string errMsg, TextSpan textSpan)
         {
             _context.AddDiag(DiagnosticSeverity.Error, code, errMsg, textSpan);
-        }
-        protected void Error(DiagMsg diagMsg, TextSpan textSpan)
-        {
-            Error((int)diagMsg.Code, diagMsg.GetMessage(), textSpan);
         }
         protected void Throw()
         {
@@ -72,15 +68,6 @@ namespace CSharpParser
         protected void ErrorAndThrow(string errMsg)
         {
             ErrorAndThrow(errMsg, GetToken().TextSpan);
-        }
-        protected void ErrorAndThrow(DiagMsg diagMsg, TextSpan textSpan)
-        {
-            Error(diagMsg, textSpan);
-            Throw();
-        }
-        protected void ErrorAndThrow(DiagMsg diagMsg)
-        {
-            ErrorAndThrow(diagMsg, GetToken().TextSpan);
         }
 
         protected Token GetToken(int offset = 0)
@@ -343,8 +330,46 @@ namespace CSharpParser
             }
             return default(SyntaxList<T>);
         }
-        protected SeparatedSyntaxList<T> SeparatedList<T>(Creator<T> itemCreator, int separatorKind = ',',
-            bool allowTrailingSeparator = false, Func<T> omittedItemCreator = null) where T : SyntaxNode
+        protected SyntaxList<T> List<T>(bool arg, BoolCreator<T> itemCreator) where T : SyntaxNode
+        {
+            T singleItem = null;
+            List<T> itemList = null;
+            while (true)
+            {
+                T item;
+                if (itemCreator(arg, out item))
+                {
+                    if (singleItem == null)
+                    {
+                        singleItem = item;
+                    }
+                    else
+                    {
+                        if (itemList == null)
+                        {
+                            itemList = new List<T>();
+                            itemList.Add(singleItem);
+                        }
+                        itemList.Add(item);
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if (itemList != null)
+            {
+                return SyntaxFactory.List(itemList);
+            }
+            if (singleItem != null)
+            {
+                return SyntaxFactory.SingletonList(singleItem);
+            }
+            return default(SyntaxList<T>);
+        }
+        protected SeparatedSyntaxList<T> SeparatedList<T>(Creator<T> itemCreator, Func<T> omittedItemCreator = null,
+            bool allowTrailingSeparator = false, int separatorKind = ',') where T : SyntaxNode
         {
             T singleItem = null;
             List<T> itemList = null;
@@ -500,61 +525,36 @@ namespace CSharpParser
             result = null;
             return false;
         }
-        private bool _inConditionalExprCondition;
         protected bool ConditionalExpression(out ExpressionSyntax result)
         {
-            ExpressionSyntax condition;
-            _inConditionalExprCondition = true;
-            var b = CoalesceExpression(out condition);
-            _inConditionalExprCondition = false;
-            if (b)
+            if (CoalesceExpression(out result))
             {
-                SyntaxToken question, colon = default(SyntaxToken);
-                ExpressionSyntax whenTrue = null, whenFalse = null;
-                if (Token('?', out question))
+                SyntaxToken questionToken;
+                if (Token('?', out questionToken))
                 {
-                    whenTrue = ExpressionExpected();
-                    colon = TokenExpected(':');
-                    whenFalse = ExpressionExpected();
-                }
-                if (whenTrue == null)
-                {
-                    result = condition;
-                }
-                else
-                {
-                    result = SyntaxFactory.ConditionalExpression(condition, question, whenTrue, colon, whenFalse);
+                    result = SyntaxFactory.ConditionalExpression(result, questionToken,
+                        ExpressionExpected(), TokenExpected(':'), ExpressionExpected());
                 }
                 return true;
             }
-            result = null;
             return false;
         }
         protected bool CoalesceExpression(out ExpressionSyntax result)
         {
-            ExpressionSyntax left;
-            if (LogicalOrExpression(out left))
+            if (LogicalOrExpression(out result))
             {
                 SyntaxToken st;
-                ExpressionSyntax right = null;
                 if (Token((int)TokenKind.QuestionQuestion, out st))
                 {
+                    ExpressionSyntax right;
                     if (!CoalesceExpression(out right))
                     {
                         ExpressionExpectedErrorAndThrow();
                     }
-                }
-                if (right == null)
-                {
-                    result = left;
-                }
-                else
-                {
-                    result = SyntaxFactory.BinaryExpression(SyntaxKind.CoalesceExpression, left, st, right);
+                    result = SyntaxFactory.BinaryExpression(SyntaxKind.CoalesceExpression, result, st, right);
                 }
                 return true;
             }
-            result = null;
             return false;
         }
         protected bool LogicalOrExpression(out ExpressionSyntax result)
@@ -648,91 +648,92 @@ namespace CSharpParser
             {
                 while (true)
                 {
-                    SyntaxKind kind;
-                    SyntaxToken st;
-                    if (Token((int)TokenKind.EqualsEquals, out st))
+                    SyntaxKind exprKind;
+                    var token = GetToken();
+                    var tokenKind = token.Kind;
+                    switch (tokenKind)
                     {
-                        kind = SyntaxKind.EqualsExpression;
+                        case (int)TokenKind.EqualsEquals:
+                            exprKind = SyntaxKind.EqualsExpression;
+                            break;
+                        case (int)TokenKind.ExclamationEquals:
+                            exprKind = SyntaxKind.NotEqualsExpression;
+                            break;
+                        default:
+                            return true;
                     }
-                    else if (Token((int)TokenKind.ExclamationEquals, out st))
-                    {
-                        kind = SyntaxKind.NotEqualsExpression;
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    ConsumeToken();
                     ExpressionSyntax right;
                     if (!RelationalExpression(out right))
                     {
                         ExpressionExpectedErrorAndThrow();
                     }
-                    result = SyntaxFactory.BinaryExpression(kind, result, st, right);
+                    result = SyntaxFactory.BinaryExpression(exprKind, result, Token(tokenKind, token.Index), right);
                 }
             }
-            return result != null;
+            return false;
         }
-        private bool _inIsExprType;
         protected bool RelationalExpression(out ExpressionSyntax result)
         {
             if (ShiftExpression(out result))
             {
                 while (true)
                 {
-                    SyntaxKind kind;
-                    SyntaxToken st;
-                    if (Token('<', out st))
+                    SyntaxKind exprKind;
+                    var token = GetToken();
+                    var tokenKind = token.Kind;
+                    switch (tokenKind)
                     {
-                        kind = SyntaxKind.LessThanExpression;
+                        case '<':
+                            exprKind = SyntaxKind.LessThanExpression;
+                            break;
+                        case (int)TokenKind.LessThanEquals:
+                            exprKind = SyntaxKind.LessThanOrEqualExpression;
+                            break;
+                        case '>':
+                            exprKind = SyntaxKind.GreaterThanExpression;
+                            break;
+                        case (int)TokenKind.GreaterThanEquals:
+                            exprKind = SyntaxKind.GreaterThanOrEqualExpression;
+                            break;
+                        case (int)TokenKind.NormalIdentifier:
+                            switch (token.Value)
+                            {
+                                case "is":
+                                    {
+                                        ConsumeToken();
+                                        TypeSyntax type;
+                                        //e.g. var x = o is int ? 1 : 2;
+                                        //e.g. var x = o is int? ? 1 : 2;
+                                        if (!TypeCore(true, out type))
+                                        {
+                                            ErrorAndThrow("Type expected.");
+                                        }
+                                        result = SyntaxFactory.BinaryExpression(SyntaxKind.IsExpression, result, Token(SyntaxKind.IsKeyword, token.Index),
+                                            type);
+                                    }
+                                    continue;
+                                case "as":
+                                    ConsumeToken();
+                                    result = SyntaxFactory.BinaryExpression(SyntaxKind.AsExpression, result, Token(SyntaxKind.AsKeyword, token.Index),
+                                        TypeExpected());
+                                    continue;
+                                default:
+                                    return true;
+                            }
+                        default:
+                            return true;
                     }
-                    else if (Token((int)TokenKind.LessThanEquals, out st))
-                    {
-                        kind = SyntaxKind.LessThanOrEqualExpression;
-                    }
-                    else if (Token('>', out st))
-                    {
-                        kind = SyntaxKind.GreaterThanExpression;
-                    }
-                    else if (Token((int)TokenKind.GreaterThanEquals, out st))
-                    {
-                        kind = SyntaxKind.GreaterThanOrEqualExpression;
-                    }
-                    else if (Keyword("is", out st))
-                    {
-                        kind = SyntaxKind.IsExpression;
-                    }
-                    else if (Keyword("as", out st))
-                    {
-                        kind = SyntaxKind.AsExpression;
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    ConsumeToken();
                     ExpressionSyntax right;
-                    if (kind == SyntaxKind.IsExpression)
+                    if (!ShiftExpression(out right))
                     {
-                        //object o = null;
-                        //var x = o is int ? 1:2;
-                        _inIsExprType = true;
-                        right = TypeExpected();
-                        _inIsExprType = false;
+                        ExpressionExpectedErrorAndThrow();
                     }
-                    else if (kind == SyntaxKind.AsExpression)
-                    {
-                        right = TypeExpected();
-                    }
-                    else
-                    {
-                        if (!ShiftExpression(out right))
-                        {
-                            ExpressionExpectedErrorAndThrow();
-                        }
-                    }
-                    result = SyntaxFactory.BinaryExpression(kind, result, st, right);
+                    result = SyntaxFactory.BinaryExpression(exprKind, result, Token(tokenKind, token.Index), right);
                 }
             }
-            return result != null;
+            return false;
         }
         protected bool ShiftExpression(out ExpressionSyntax result)
         {
@@ -742,19 +743,32 @@ namespace CSharpParser
                 {
                     SyntaxKind exprKind;
                     SyntaxToken st;
-
-
-                    if (Token((int)TokenKind.LessThanLessThan, out st))
+                    var token = GetToken();
+                    switch (token.Kind)
                     {
-                        exprKind = SyntaxKind.LeftShiftExpression;
-                    }
-                    else if (Token('>', '>', SyntaxKind.GreaterThanGreaterThanToken, out st))
-                    {
-                        exprKind = SyntaxKind.RightShiftExpression;
-                    }
-                    else
-                    {
-                        return true;
+                        case (int)TokenKind.LessThanLessThan:
+                            ConsumeToken();
+                            st = Token(SyntaxKind.LessThanLessThanToken, token.Index);
+                            exprKind = SyntaxKind.LeftShiftExpression;
+                            break;
+                        case '>':
+                            {
+                                var token2 = GetToken(1);
+                                if (token2.Kind == '>' && token.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
+                                {
+                                    ConsumeToken();
+                                    ConsumeToken();
+                                    st = SyntaxFactory.Token(SyntaxKind.GreaterThanGreaterThanToken).Attach(token.Index, token2.Index);
+                                    exprKind = SyntaxKind.RightShiftExpression;
+                                }
+                                else
+                                {
+                                    return true;
+                                }
+                            }
+                            break;
+                        default:
+                            return true;
                     }
                     ExpressionSyntax right;
                     if (!AdditiveExpression(out right))
@@ -866,11 +880,52 @@ namespace CSharpParser
                             SyntaxToken closeParen;
                             if (Token(')', out closeParen))
                             {
-                                ExpressionSyntax expr;
-                                if (PrefixUnaryExpression(out expr))
+                                //C# spec 7.7.6
+                                bool ok;
+                                if (type is PredefinedTypeSyntax)
                                 {
-                                    result = SyntaxFactory.CastExpression(Token(SyntaxKind.OpenParenToken, token.Index), type, closeParen, expr);
-                                    return true;
+                                    ok = true;
+                                }
+                                else
+                                {
+                                    var token2 = GetToken();
+                                    switch (token2.Kind)
+                                    {
+                                        case (int)TokenKind.NormalIdentifier:
+                                            switch (token2.Value)
+                                            {
+                                                case "is":
+                                                case "as":
+                                                    ok = false;
+                                                    break;
+                                                default:
+                                                    ok = true;
+                                                    break;
+                                            }
+                                            break;
+                                        case (int)TokenKind.VerbatimIdentifier:
+                                        case (int)TokenKind.NormalString:
+                                        case (int)TokenKind.VerbatimString:
+                                        case (int)TokenKind.Char:
+                                        case (int)TokenKind.Number:
+                                        case '~':
+                                        case '!':
+                                        case '(':
+                                            ok = true;
+                                            break;
+                                        default:
+                                            ok = false;
+                                            break;
+                                    }
+                                }
+                                if (ok)
+                                {
+                                    ExpressionSyntax expr;
+                                    if (PrefixUnaryExpression(out expr))
+                                    {
+                                        result = SyntaxFactory.CastExpression(Token(SyntaxKind.OpenParenToken, token.Index), type, closeParen, expr);
+                                        return true;
+                                    }
                                 }
                             }
                         }
@@ -883,11 +938,32 @@ namespace CSharpParser
                         {
                             var tkIdx = _tokenIndex;
                             ConsumeToken();
-                            ExpressionSyntax expr;
-                            if (PrefixUnaryExpression(out expr))
+                            //todo: C# spec ???
+                            //e.g. var await = 0; var x = await + 3;
+                            bool ok;
+                            switch (GetToken().Kind)
                             {
-                                result = SyntaxFactory.AwaitExpression(Token(SyntaxKind.AwaitKeyword, token.Index), expr);
-                                return true;
+                                case '+':
+                                case '-':
+                                case '!':
+                                case '~':
+                                case (int)TokenKind.PlusPlus:
+                                case (int)TokenKind.MinusMinus:
+                                    ok = false;
+                                    break;
+                                default:
+                                    ok = true;
+                                    break;
+                            }
+                            if (ok)
+                            {
+                                ExpressionSyntax expr;
+                                if (PrefixUnaryExpression(out expr))
+                                {
+                                    result = SyntaxFactory.AwaitExpression(Token(SyntaxKind.AwaitKeyword, token.Index), expr);
+                                    return true;
+                                }
+                                break;
                             }
                             _tokenIndex = tkIdx;
                         }
@@ -1072,10 +1148,12 @@ namespace CSharpParser
             result = null;
             return false;
         }
-
         protected bool Type(out TypeSyntax result)
         {
-            SyntaxToken st;
+            return TypeCore(false, out result);
+        }
+        protected bool TypeCore(bool checkNullable, out TypeSyntax result)
+        {
             PredefinedTypeSyntax pt;
             if (PredefinedType(out pt))
             {
@@ -1094,22 +1172,40 @@ namespace CSharpParser
                     return false;
                 }
             }
-            if (PeekToken(0, '?'))
+            var token = GetToken();
+            if (token.Kind == '?')
             {
-                var got = true;
-                if (_inConditionalExprCondition && _inIsExprType)
+                var ok = true;
+                if (checkNullable)
                 {
-                    got = !PeekToken(1, (int)TokenKind.NormalIdentifier, '(');//todo?
+                    switch (GetToken(1).Kind)
+                    {
+                        case ';':
+                        case ',':
+                        case ')':
+                        case ']':
+                        case '}':
+                        case '?':
+                        case (int)TokenKind.AmpersandAmpersand:
+                        case (int)TokenKind.BarBar:
+                        case (int)TokenKind.EqualsEquals:
+                        case (int)TokenKind.ExclamationEquals:
+
+                            break;
+                        default:
+                            ok = false;
+                            break;
+                    }
                 }
-                if (got)
+                if (ok)
                 {
-                    Token('?', out st);
-                    result = SyntaxFactory.NullableType(result, st);
+                    ConsumeToken();
+                    result = SyntaxFactory.NullableType(result, Token(SyntaxKind.QuestionToken, token.Index));
                 }
             }
             if (PeekToken(0, '['))
             {
-                result = SyntaxFactory.ArrayType(result, List(_ArrayRankSpecifierSyntaxCreator));
+                result = SyntaxFactory.ArrayType(result, List(false, _ArrayRankSpecifierSyntaxCreator));
             }
             return true;
         }
@@ -1122,14 +1218,13 @@ namespace CSharpParser
             }
             return result;
         }
-        private bool _allowArrayRankSpecifierExprs;
-        protected bool ArrayRankSpecifier(out ArrayRankSpecifierSyntax result)
+        protected bool ArrayRankSpecifier(bool allowExpr, out ArrayRankSpecifierSyntax result)
         {
             SyntaxToken st;
             if (Token('[', out st))
             {
                 result = SyntaxFactory.ArrayRankSpecifier(st,
-                    SeparatedList(_allowArrayRankSpecifierExprs ? _ExpressionSyntaxCreator : null, ',', false, _OmittedArraySizeExpressionSyntaxCreator),
+                    SeparatedList(allowExpr ? _ExpressionSyntaxCreator : null, _OmittedArraySizeExpressionSyntaxCreator),
                     TokenExpected(']'));
                 return true;
             }
@@ -1220,7 +1315,7 @@ namespace CSharpParser
                 {
                     var tkIdx = _tokenIndex;
                     ConsumeToken();
-                    var typeArgs = SeparatedList(_TypeSyntaxCreator, ',', false, _OmittedTypeArgumentSyntaxCreator);
+                    var typeArgs = SeparatedList(_TypeSyntaxCreator, _OmittedTypeArgumentSyntaxCreator);
                     SyntaxToken gtToken;
                     if (Token('>', out gtToken))
                     {
