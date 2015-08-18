@@ -169,11 +169,11 @@ namespace CSharpParser
             return new TextSpan(_filePath, startIndex, _totalIndex - startIndex, _tokenStartPosition,
                 new TextPosition(_lastLine, _lastColumn));
         }
-        private Token CreateToken(TokenKind tokenKind, string value = null)
+        private Token CreateToken(TokenKind tokenKind, string value = null, SyntaxKind syntaxKind = SyntaxKind.None)
         {
             _atLineHead = false;
             _gotNonTrivalToken = true;
-            return new Token((int)tokenKind, value, CreateFullTextSpan());
+            return new Token((int)tokenKind, value, CreateFullTextSpan(), syntaxKind);
         }
         private TextSpan CreateSingleTextSpan()
         {
@@ -190,7 +190,7 @@ namespace CSharpParser
         }
         private void ErrorAndThrow(string errMsg, TextSpan textSpan)
         {
-            _context.AddDiag(DiagnosticSeverity.Error, (int)DiagnosticCode.Parsing, errMsg, textSpan);
+            _context.AddDiag(DiagnosticSeverity.Error, Extensions.ParsingErrorCode, errMsg, textSpan);
             throw ParsingException.Instance;
         }
         private void ErrorAndThrow(string errMsg)
@@ -455,7 +455,7 @@ namespace CSharpParser
                                     }
                                     else
                                     {
-                                        return CreateToken(TokenKind.VerbatimString, sb.ToString());
+                                        return CreateToken(TokenKind.String, sb.ToString());
                                     }
                                 }
                                 else if (ch == char.MaxValue)
@@ -500,7 +500,7 @@ namespace CSharpParser
                             else if (ch == '"')
                             {
                                 ConsumeChar();
-                                return CreateToken(TokenKind.NormalString, sb.ToString());
+                                return CreateToken(TokenKind.String, sb.ToString());
                             }
                             else if (ch == char.MaxValue || SyntaxFacts.IsNewLine(ch))
                             {
@@ -843,7 +843,27 @@ namespace CSharpParser
                 }
                 else
                 {
-                    return CreateToken(isNormal ? TokenKind.NormalIdentifier : TokenKind.VerbatimIdentifier, sb.ToString());
+                    var text = sb.ToString();
+                    TokenKind kind;
+                    SyntaxKind syntaxKind;
+                    if (isNormal)
+                    {
+                        syntaxKind = SyntaxFacts.GetKeywordKind(text);
+                        if (syntaxKind != SyntaxKind.None)
+                        {
+                            kind = TokenKind.ReservedKeyword;
+                        }
+                        else
+                        {
+                            kind = TokenKind.NormalIdentifier;
+                        }
+                    }
+                    else
+                    {
+                        kind = TokenKind.VerbatimIdentifier;
+                        syntaxKind = SyntaxKind.None;
+                    }
+                    return CreateToken(kind, text, syntaxKind);
                 }
             }
         }

@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace CSharpParser
 {
     public delegate bool Creator<T>(out T item);//where T : SyntaxNode;
-    public delegate bool BoolCreator<T>(bool arg, out T item);//where T : SyntaxNode;
+    public delegate bool IntArgCreator<T>(int arg, out T item);//where T : SyntaxNode;
     public abstract class ParserBase
     {
         protected ParserBase()
@@ -24,7 +24,6 @@ namespace CSharpParser
             _filePath = filePath;
             _context = context;
             _tokenIndex = context.TokenList.Count;
-            //
         }
         protected virtual void Clear()
         {
@@ -45,7 +44,7 @@ namespace CSharpParser
 
         protected readonly Creator<ExpressionSyntax> _ExpressionSyntaxCreator;
         protected readonly Creator<TypeSyntax> _TypeSyntaxCreator;
-        protected readonly BoolCreator<ArrayRankSpecifierSyntax> _ArrayRankSpecifierSyntaxCreator;
+        protected readonly IntArgCreator<ArrayRankSpecifierSyntax> _ArrayRankSpecifierSyntaxCreator;
 
         protected static readonly Func<OmittedArraySizeExpressionSyntax> _OmittedArraySizeExpressionSyntaxCreator = SyntaxFactory.OmittedArraySizeExpression;
         protected static readonly Func<OmittedTypeArgumentSyntax> _OmittedTypeArgumentSyntaxCreator = SyntaxFactory.OmittedTypeArgument;
@@ -62,7 +61,7 @@ namespace CSharpParser
         }
         protected void ErrorAndThrow(string errMsg, TextSpan textSpan)
         {
-            Error((int)DiagnosticCode.Parsing, errMsg, textSpan);
+            Error(Extensions.ParsingErrorCode, errMsg, textSpan);
             Throw();
         }
         protected void ErrorAndThrow(string errMsg)
@@ -82,10 +81,10 @@ namespace CSharpParser
             }
             return tokenList[idx];
         }
-        protected void ConsumeToken()
-        {
-            ++_tokenIndex;
-        }
+        //protected void ConsumeToken()
+        //{
+        //    ++_tokenIndex;
+        //}
         protected bool PeekToken(int offset, int kind)
         {
             return GetToken(offset).Kind == kind;
@@ -108,17 +107,13 @@ namespace CSharpParser
 
         protected SyntaxToken Identifier(Token token)
         {
-            var text = token.Value;
+            var value = token.Value;
             if (token.IsNormalIdentifier)
             {
-                if (SyntaxFacts.GetKeywordKind(text) != SyntaxKind.None)
-                {
-                    ErrorAndThrow("@ required if identifier is reserved keyword.", token.TextSpan);
-                }
-                return SyntaxFactory.Identifier(text).Attach(token.Index);
+                return SyntaxFactory.Identifier(value).Attach(token.Index);
             }
             return SyntaxFactory.Identifier(default(SyntaxTriviaList), SyntaxKind.IdentifierToken,
-                   "@" + text, text, default(SyntaxTriviaList)).Attach(token.Index);
+                   "@" + value, value, default(SyntaxTriviaList)).Attach(token.Index);
         }
         protected bool Identifier(out SyntaxToken result)
         {
@@ -136,53 +131,69 @@ namespace CSharpParser
             SyntaxToken result;
             if (!Identifier(out result))
             {
-                ErrorAndThrow("Identifier expected.");
+                IdentifierExpectedErrorAndThrow();
             }
             return result;
+        }
+        protected void IdentifierExpectedErrorAndThrow()
+        {
+            ErrorAndThrow("Identifier expected.");
         }
 
-        private static SyntaxKind GetAllKeywordKind(string text)
-        {
-            var kind = SyntaxFacts.GetKeywordKind(text);
-            if (kind == SyntaxKind.None)
-            {
-                kind = SyntaxFacts.GetContextualKeywordKind(text);
-            }
-            return kind;
-        }
-        protected bool Keyword(string text, out SyntaxToken result)
+        //private static SyntaxKind GetAllKeywordKind(string text)
+        //{
+        //    var kind = SyntaxFacts.GetKeywordKind(text);
+        //    if (kind == SyntaxKind.None)
+        //    {
+        //        kind = SyntaxFacts.GetContextualKeywordKind(text);
+        //    }
+        //    return kind;
+        //}
+        //protected bool Keyword(string text, out SyntaxToken result)
+        //{
+        //    var token = GetToken();
+        //    if (token.IsKeyword(text))
+        //    {
+        //        ConsumeToken();
+        //        result = Token(GetAllKeywordKind(text), token.Index);
+        //        return true;
+        //    }
+        //    result = default(SyntaxToken);
+        //    return false;
+        //}
+        //protected SyntaxToken KeywordExpected(string text)
+        //{
+        //    SyntaxToken result;
+        //    if (!Keyword(text, out result))
+        //    {
+        //        ErrorAndThrow(text + " expected.");
+        //    }
+        //    return result;
+        //}
+        //protected bool Keyword(HashSet<string> keywordSet, out SyntaxToken result)
+        //{
+        //    var token = GetToken();
+        //    if (token.IsNormalIdentifier)
+        //    {
+        //        var text = token.Value;
+        //        if (keywordSet.Contains(text))
+        //        {
+        //            ConsumeToken();
+        //            result = Token(GetAllKeywordKind(text), token.Index);
+        //            return true;
+        //        }
+        //    }
+        //    result = default(SyntaxToken);
+        //    return false;
+        //}
+        protected bool ReservedKeyword(SyntaxKind kind, out SyntaxToken result)
         {
             var token = GetToken();
-            if (token.IsKeyword(text))
+            if (token.IsReservedKeyword && token.SyntaxKind == kind)
             {
-                ConsumeToken();
-                result = Token(GetAllKeywordKind(text), token.Index);
+                ++_tokenIndex;
+                result = Token(kind, token.Index);
                 return true;
-            }
-            result = default(SyntaxToken);
-            return false;
-        }
-        protected SyntaxToken KeywordExpected(string text)
-        {
-            SyntaxToken result;
-            if (!Keyword(text, out result))
-            {
-                ErrorAndThrow(text + " expected.");
-            }
-            return result;
-        }
-        protected bool Keyword(HashSet<string> keywordSet, out SyntaxToken result)
-        {
-            var token = GetToken();
-            if (token.IsNormalIdentifier)
-            {
-                var text = token.Value;
-                if (keywordSet.Contains(text))
-                {
-                    ConsumeToken();
-                    result = Token(GetAllKeywordKind(text), token.Index);
-                    return true;
-                }
             }
             result = default(SyntaxToken);
             return false;
@@ -258,7 +269,7 @@ namespace CSharpParser
             var token = GetToken();
             if (token.Kind == kind)
             {
-                ConsumeToken();
+                ++_tokenIndex;
                 result = Token(_tokenKindMap[kind], token.Index);
                 return true;
             }
@@ -274,23 +285,23 @@ namespace CSharpParser
             }
             return result;
         }
-        protected bool Token(int kind1, int kind2, SyntaxKind syntaxKind, out SyntaxToken result)
-        {
-            var token1 = GetToken();
-            if (token1.Kind == kind1)
-            {
-                var token2 = GetToken(1);
-                if (token2.Kind == kind2 && token1.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
-                {
-                    ConsumeToken();
-                    ConsumeToken();
-                    result = SyntaxFactory.Token(syntaxKind).Attach(token1.Index, token2.Index);
-                    return true;
-                }
-            }
-            result = default(SyntaxToken);
-            return false;
-        }
+        //protected bool Token(int kind1, int kind2, SyntaxKind syntaxKind, out SyntaxToken result)
+        //{
+        //    var token1 = GetToken();
+        //    if (token1.Kind == kind1)
+        //    {
+        //        var token2 = GetToken(1);
+        //        if (token2.Kind == kind2 && token1.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
+        //        {
+        //            ConsumeToken();
+        //            ConsumeToken();
+        //            result = SyntaxFactory.Token(syntaxKind).Attach(token1.Index, token2.Index);
+        //            return true;
+        //        }
+        //    }
+        //    result = default(SyntaxToken);
+        //    return false;
+        //}
 
         protected SyntaxList<T> List<T>(Creator<T> itemCreator) where T : SyntaxNode
         {
@@ -330,7 +341,7 @@ namespace CSharpParser
             }
             return default(SyntaxList<T>);
         }
-        protected SyntaxList<T> List<T>(bool arg, BoolCreator<T> itemCreator) where T : SyntaxNode
+        protected SyntaxList<T> List<T>(int arg, IntArgCreator<T> itemCreator) where T : SyntaxNode
         {
             T singleItem = null;
             List<T> itemList = null;
@@ -498,13 +509,351 @@ namespace CSharpParser
             return default(SeparatedSyntaxList<T>);
         }
 
-        //
-        protected bool Expression(out ExpressionSyntax result)
-        {
+        //delegate void D(int a);
+        //delegate void D2(ref int a);
+        //delegate void D3(out int a);
+        //D x = delegate (int s) { };
+        //D2 x2 = async delegate (ref int s) { };
+        //D3 x3 =  (out int s) => { s = 1; };
+        //Action<int, int> g = (a, int b) => { };
 
+        protected bool Block(out BlockSyntax result)
+        {
+            SyntaxToken st;
+            if (Token('{', out st))
+            {
+
+            }
             result = null;
             return false;
         }
+        //
+        protected bool Expression(out ExpressionSyntax result)
+        {
+            var token = GetToken();
+            switch (token.Kind)
+            {
+                case (int)TokenKind.NormalIdentifier:
+                    switch (token.Value)
+                    {
+                        case "from":
+                            {
+                                var tkIdx = _tokenIndex;
+                                ++_tokenIndex;
+                                var tkIdx2 = _tokenIndex;
+                                SyntaxToken identifier;
+                                SyntaxToken inKeyword;
+                                //>from id in
+                                if (Identifier(out identifier))
+                                {
+                                    if (ReservedKeyword(SyntaxKind.InKeyword, out inKeyword))
+                                    {
+                                        result = QueryExpression(Token(SyntaxKind.FromKeyword, token.Index), null, identifier, inKeyword);
+                                        return true;
+                                    }
+                                }
+                                _tokenIndex = tkIdx2;
+                                //>from type id in
+                                TypeSyntax type;
+                                if (Type(out type))
+                                {
+                                    if (Identifier(out identifier))
+                                    {
+                                        if (ReservedKeyword(SyntaxKind.InKeyword, out inKeyword))
+                                        {
+                                            result = QueryExpression(Token(SyntaxKind.FromKeyword, token.Index), type, identifier, inKeyword);
+                                            return true;
+                                        }
+                                    }
+                                }
+                                _tokenIndex = tkIdx;
+                            }
+                            break;
+                        case "async":
+                            {
+                                var token2 = GetToken(1);
+                                switch (token2.Kind)
+                                {
+                                    case (int)TokenKind.NormalIdentifier:
+                                    case (int)TokenKind.VerbatimIdentifier:
+                                        {
+                                            var tkIdx = _tokenIndex;
+                                            _tokenIndex += 2;
+                                            result = SimpleLambdaExpression(token, token2);
+                                            if (result != null)
+                                            {
+                                                return true;
+                                            }
+                                            _tokenIndex = tkIdx;
+                                        }
+                                        break;
+                                    case '(':
+                                        {
+                                            var tkIdx = _tokenIndex;
+                                            _tokenIndex += 2;
+                                            result = ParenthesizedLambdaExpression(token, token2);
+                                            if (result != null)
+                                            {
+                                                return true;
+                                            }
+                                            _tokenIndex = tkIdx;
+                                        }
+                                        break;
+                                }
+                            }
+                            break;
+                        default:
+                            {
+                                var tkIdx = _tokenIndex;
+                                ++_tokenIndex;
+                                result = SimpleLambdaExpression(default(Token), token);
+                                if (result != null)
+                                {
+                                    return true;
+                                }
+                                _tokenIndex = tkIdx;
+                            }
+                            break;
+                    }
+                    break;
+                case (int)TokenKind.VerbatimIdentifier:
+                    {
+                        var tkIdx = _tokenIndex;
+                        ++_tokenIndex;
+                        result = SimpleLambdaExpression(default(Token), token);
+                        if (result != null)
+                        {
+                            return true;
+                        }
+                        _tokenIndex = tkIdx;
+                    }
+                    break;
+                case '(':
+                    {
+                        var tkIdx = _tokenIndex;
+                        ++_tokenIndex;
+                        result = ParenthesizedLambdaExpression(default(Token), token);
+                        if (result != null)
+                        {
+                            return true;
+                        }
+                        _tokenIndex = tkIdx;
+                    }
+                    break;
+            }
+            if (ConditionalExpression(out result))
+            {
+                if (!(result is BinaryExpressionSyntax || result is ConditionalExpressionSyntax))
+                {
+                    SyntaxKind assignKind = SyntaxKind.None;
+                    token = GetToken();
+                    switch (token.Kind)
+                    {
+                        case '=':
+                            assignKind = SyntaxKind.SimpleAssignmentExpression;
+                            break;
+                        case (int)TokenKind.PlusEquals:
+                            assignKind = SyntaxKind.AddAssignmentExpression;
+                            break;
+                        case (int)TokenKind.MinusEquals:
+                            assignKind = SyntaxKind.SubtractAssignmentExpression;
+                            break;
+                        case (int)TokenKind.AsteriskEquals:
+                            assignKind = SyntaxKind.MultiplyAssignmentExpression;
+                            break;
+                        case (int)TokenKind.SlashEquals:
+                            assignKind = SyntaxKind.DivideAssignmentExpression;
+                            break;
+                        case (int)TokenKind.PercentEquals:
+                            assignKind = SyntaxKind.ModuloAssignmentExpression;
+                            break;
+                        case (int)TokenKind.AmpersandEquals:
+                            assignKind = SyntaxKind.AndAssignmentExpression;
+                            break;
+                        case (int)TokenKind.BarEquals:
+                            assignKind = SyntaxKind.OrAssignmentExpression;
+                            break;
+                        case (int)TokenKind.CaretEquals:
+                            assignKind = SyntaxKind.ExclusiveOrAssignmentExpression;
+                            break;
+                        case (int)TokenKind.LessThanLessThanEquals:
+                            assignKind = SyntaxKind.LeftShiftAssignmentExpression;
+                            break;
+                        case '>':
+                            {
+                                var token2 = GetToken(1);
+                                if (token2.TokenKind == TokenKind.GreaterThanEquals && token.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
+                                {
+                                    _tokenIndex += 2;
+                                    result = SyntaxFactory.AssignmentExpression(SyntaxKind.RightShiftAssignmentExpression, result,
+                                        SyntaxFactory.Token(SyntaxKind.GreaterThanGreaterThanEqualsToken).Attach(token.Index, token2.Index), ExpressionExpected());
+                                    return true;
+                                }
+                            }
+                            break;
+                    }
+                    if (assignKind != SyntaxKind.None)
+                    {
+                        ++_tokenIndex;
+                        result = SyntaxFactory.AssignmentExpression(assignKind, result, Token(token.Kind, token.Index), ExpressionExpected());
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        private QueryExpressionSyntax QueryExpression(SyntaxToken fromKeyword, TypeSyntax type, SyntaxToken identifier, SyntaxToken inKeyword)
+        {
+
+            return null;
+        }
+        private SimpleLambdaExpressionSyntax SimpleLambdaExpression(Token asyncToken, Token idToken)
+        {
+            SyntaxToken arrowToken;
+            if (Token((int)TokenKind.EqualsGreaterThan, out arrowToken))
+            {
+                return SyntaxFactory.SimpleLambdaExpression(asyncToken.IsValid ? Token(SyntaxKind.AsyncKeyword, asyncToken.Index) : default(SyntaxToken),
+                    SyntaxFactory.Parameter(Identifier(idToken)), arrowToken, LambdaExpressionBody());
+            }
+            return null;
+        }
+        private CSharpSyntaxNode LambdaExpressionBody()
+        {
+            if (PeekToken(0, '{'))
+            {
+                BlockSyntax b;
+                Block(out b);
+                return b;
+            }
+            return ExpressionExpected();
+        }
+        private ParenthesizedLambdaExpressionSyntax ParenthesizedLambdaExpression(Token asyncToken, Token openParenToken)
+        {
+            List<ParameterSyntax> paraList = null;
+            List<SyntaxToken> commaList = null;
+            SyntaxToken closeParen, arrow;
+            while (true)
+            {
+                var token = GetToken();
+                switch (token.Kind)
+                {
+                    case (int)TokenKind.ReservedKeyword:
+                        switch (token.SyntaxKind)
+                        {
+                            case SyntaxKind.RefKeyword:
+                            case SyntaxKind.OutKeyword:
+                                ++_tokenIndex;
+                                Extensions.CreateAndAdd(ref paraList, SyntaxFactory.Parameter(default(SyntaxList<AttributeListSyntax>),
+                                     SyntaxFactory.TokenList(Token(token.SyntaxKind, token.Index)), TypeExpected(), IdentifierExpected(), null));
+                                break;
+                            default:
+                                if (SyntaxFacts.IsPredefinedType(token.SyntaxKind))
+                                {
+                                    ++_tokenIndex;
+                                    SyntaxToken id;
+                                    if (!Identifier(out id))
+                                    {
+                                        if (paraList == null)
+                                        {
+                                            return null;
+                                        }
+                                        IdentifierExpectedErrorAndThrow();
+                                    }
+                                    Extensions.CreateAndAdd(ref paraList, SyntaxFactory.Parameter(default(SyntaxList<AttributeListSyntax>),
+                                         default(SyntaxTokenList), SyntaxFactory.PredefinedType(Token(token.SyntaxKind, token.Index)),
+                                         id, null));
+                                }
+                                else
+                                {
+                                    if (paraList == null)
+                                    {
+                                        return null;
+                                    }
+                                    IdentifierExpectedErrorAndThrow();
+                                }
+                                break;
+                        }
+                        break;
+                    case (int)TokenKind.NormalIdentifier:
+                    case (int)TokenKind.VerbatimIdentifier:
+                        {
+                            var token2 = GetToken(1);
+                            switch (token2.Kind)
+                            {
+                                case ',':
+                                    _tokenIndex += 2;
+                                    Extensions.CreateAndAdd(ref paraList, SyntaxFactory.Parameter(Identifier(token)));
+                                    Extensions.CreateAndAdd(ref commaList, Token(SyntaxKind.CommaToken, token2.Index));
+                                    break;
+                                case ')':
+                                    {
+                                        _tokenIndex += 2;
+                                        var token3 = GetToken();
+                                        if (token3.TokenKind == TokenKind.EqualsGreaterThan)
+                                        {
+                                            ++_tokenIndex;
+                                            Extensions.CreateAndAdd(ref paraList, SyntaxFactory.Parameter(Identifier(token)));
+                                            closeParen = Token(SyntaxKind.CloseParenToken, token2.Index);
+                                            arrow = Token(SyntaxKind.EqualsGreaterThanToken, token3.Index);
+                                            goto END;
+                                        }
+                                        else
+                                        {
+                                            if (paraList == null)
+                                            {
+                                                return null;
+                                            }
+                                            ErrorAndThrow("=> expected.");
+                                        }
+                                    }
+                                    break;
+                                default:
+                                    {
+                                        var type = TypeExpected();
+                                        SyntaxToken id;
+                                        if (!Identifier(out id))
+                                        {
+                                            if (paraList == null)
+                                            {
+                                                return null;
+                                            }
+                                            IdentifierExpectedErrorAndThrow();
+                                        }
+                                        Extensions.CreateAndAdd(ref paraList, SyntaxFactory.Parameter(default(SyntaxList<AttributeListSyntax>),
+                                             default(SyntaxTokenList), type, id, null));
+                                    }
+                                    break;
+                            }
+                        }
+                        break;
+                    case ',':
+                        if (paraList == null || commaList != null && commaList.Count == paraList.Count)
+                        {
+                            IdentifierExpected();
+                        }
+                        ++_tokenIndex;
+                        Extensions.CreateAndAdd(ref commaList, Token(SyntaxKind.CommaToken, token.Index));
+                        break;
+                    case ')':
+                        if (paraList != null && commaList != null && commaList.Count == paraList.Count)
+                        {
+                            IdentifierExpected();
+                        }
+                        ++_tokenIndex;
+                        closeParen = Token(SyntaxKind.CloseParenToken, token.Index);
+                        arrow = TokenExpected((int)TokenKind.EqualsGreaterThan);
+                        goto END;
+                }
+
+            }
+        END:
+            return SyntaxFactory.ParenthesizedLambdaExpression(asyncToken.IsValid ? Token(SyntaxKind.AsyncKeyword, asyncToken.Index) : default(SyntaxToken),
+                SyntaxFactory.ParameterList(Token(SyntaxKind.OpenParenToken, openParenToken.Index),
+                    paraList == null ? default(SeparatedSyntaxList<ParameterSyntax>) : SyntaxFactory.SeparatedList(paraList, commaList), closeParen),
+                arrow, LambdaExpressionBody());
+        }
+
         protected void ExpressionExpectedErrorAndThrow()
         {
             ErrorAndThrow("Expression expected.");
@@ -517,13 +866,6 @@ namespace CSharpParser
                 ExpressionExpectedErrorAndThrow();
             }
             return result;
-        }
-        protected bool AssignmentExpression(out AssignmentExpressionSyntax result)
-        {
-
-
-            result = null;
-            return false;
         }
         protected bool ConditionalExpression(out ExpressionSyntax result)
         {
@@ -662,7 +1004,7 @@ namespace CSharpParser
                         default:
                             return true;
                     }
-                    ConsumeToken();
+                    ++_tokenIndex;
                     ExpressionSyntax right;
                     if (!RelationalExpression(out right))
                     {
@@ -691,30 +1033,40 @@ namespace CSharpParser
                             exprKind = SyntaxKind.LessThanOrEqualExpression;
                             break;
                         case '>':
-                            exprKind = SyntaxKind.GreaterThanExpression;
+                            {
+                                var token2 = GetToken(1);
+                                if (token2.TokenKind == TokenKind.GreaterThanEquals && token.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
+                                {
+                                    return true;
+                                }
+                                else
+                                {
+                                    exprKind = SyntaxKind.GreaterThanExpression;
+                                }
+                            }
                             break;
                         case (int)TokenKind.GreaterThanEquals:
                             exprKind = SyntaxKind.GreaterThanOrEqualExpression;
                             break;
-                        case (int)TokenKind.NormalIdentifier:
-                            switch (token.Value)
+                        case (int)TokenKind.ReservedKeyword:
+                            switch (token.SyntaxKind)
                             {
-                                case "is":
+                                case SyntaxKind.IsKeyword:
                                     {
-                                        ConsumeToken();
+                                        ++_tokenIndex;
                                         TypeSyntax type;
                                         //e.g. var x = o is int ? 1 : 2;
                                         //e.g. var x = o is int? ? 1 : 2;
                                         if (!TypeCore(true, out type))
                                         {
-                                            ErrorAndThrow("Type expected.");
+                                            TypeExpectedErrorAndThrow();
                                         }
                                         result = SyntaxFactory.BinaryExpression(SyntaxKind.IsExpression, result, Token(SyntaxKind.IsKeyword, token.Index),
                                             type);
                                     }
                                     continue;
-                                case "as":
-                                    ConsumeToken();
+                                case SyntaxKind.AsKeyword:
+                                    ++_tokenIndex;
                                     result = SyntaxFactory.BinaryExpression(SyntaxKind.AsExpression, result, Token(SyntaxKind.AsKeyword, token.Index),
                                         TypeExpected());
                                     continue;
@@ -724,7 +1076,7 @@ namespace CSharpParser
                         default:
                             return true;
                     }
-                    ConsumeToken();
+                    ++_tokenIndex;
                     ExpressionSyntax right;
                     if (!ShiftExpression(out right))
                     {
@@ -747,7 +1099,7 @@ namespace CSharpParser
                     switch (token.Kind)
                     {
                         case (int)TokenKind.LessThanLessThan:
-                            ConsumeToken();
+                            ++_tokenIndex;
                             st = Token(SyntaxKind.LessThanLessThanToken, token.Index);
                             exprKind = SyntaxKind.LeftShiftExpression;
                             break;
@@ -756,8 +1108,7 @@ namespace CSharpParser
                                 var token2 = GetToken(1);
                                 if (token2.Kind == '>' && token.TextSpan.StartIndex + 1 == token2.TextSpan.StartIndex)
                                 {
-                                    ConsumeToken();
-                                    ConsumeToken();
+                                    _tokenIndex += 2;
                                     st = SyntaxFactory.Token(SyntaxKind.GreaterThanGreaterThanToken).Attach(token.Index, token2.Index);
                                     exprKind = SyntaxKind.RightShiftExpression;
                                 }
@@ -800,7 +1151,7 @@ namespace CSharpParser
                         default:
                             return true;
                     }
-                    ConsumeToken();
+                    ++_tokenIndex;
                     ExpressionSyntax right;
                     if (!MultiplicativeExpression(out right))
                     {
@@ -834,7 +1185,7 @@ namespace CSharpParser
                         default:
                             return true;
                     }
-                    ConsumeToken();
+                    ++_tokenIndex;
                     ExpressionSyntax right;
                     if (!PrefixUnaryExpression(out right))
                     {
@@ -873,7 +1224,7 @@ namespace CSharpParser
                 case '(':
                     {
                         var tkIdx = _tokenIndex;
-                        ConsumeToken();
+                        ++_tokenIndex;
                         TypeSyntax type;
                         if (Type(out type))
                         {
@@ -891,11 +1242,11 @@ namespace CSharpParser
                                     var token2 = GetToken();
                                     switch (token2.Kind)
                                     {
-                                        case (int)TokenKind.NormalIdentifier:
-                                            switch (token2.Value)
+                                        case (int)TokenKind.ReservedKeyword:
+                                            switch (token2.SyntaxKind)
                                             {
-                                                case "is":
-                                                case "as":
+                                                case SyntaxKind.IsKeyword:
+                                                case SyntaxKind.AsKeyword:
                                                     ok = false;
                                                     break;
                                                 default:
@@ -903,14 +1254,17 @@ namespace CSharpParser
                                                     break;
                                             }
                                             break;
+                                        case (int)TokenKind.NormalIdentifier:
                                         case (int)TokenKind.VerbatimIdentifier:
-                                        case (int)TokenKind.NormalString:
-                                        case (int)TokenKind.VerbatimString:
+                                        case (int)TokenKind.String:
                                         case (int)TokenKind.Char:
                                         case (int)TokenKind.Number:
                                         case '~':
                                         case '!':
                                         case '(':
+                                            //C# spec's bug?
+                                            //case (int)TokenKind.PlusPlus:
+                                            //case (int)TokenKind.MinusMinus:
                                             ok = true;
                                             break;
                                         default:
@@ -933,46 +1287,39 @@ namespace CSharpParser
                     }
                     break;
                 case (int)TokenKind.NormalIdentifier:
+                    if (token.Value == "await")
                     {
-                        if (token.Value == "await")
+                        var tkIdx = _tokenIndex;
+                        ++_tokenIndex;
+                        //todo: C# spec ???
+                        //e.g. var await = 0; var x = await + 3;
+                        bool ok;
+                        switch (GetToken().Kind)
                         {
-                            var tkIdx = _tokenIndex;
-                            ConsumeToken();
-                            //todo: C# spec ???
-                            //e.g. var await = 0; var x = await + 3;
-                            bool ok;
-                            switch (GetToken().Kind)
-                            {
-                                case '+':
-                                case '-':
-                                case '!':
-                                case '~':
-                                case (int)TokenKind.PlusPlus:
-                                case (int)TokenKind.MinusMinus:
-                                    ok = false;
-                                    break;
-                                default:
-                                    ok = true;
-                                    break;
-                            }
-                            if (ok)
-                            {
-                                ExpressionSyntax expr;
-                                if (PrefixUnaryExpression(out expr))
-                                {
-                                    result = SyntaxFactory.AwaitExpression(Token(SyntaxKind.AwaitKeyword, token.Index), expr);
-                                    return true;
-                                }
+                            case '+':
+                            case '-':
+                                ok = false;
                                 break;
-                            }
-                            _tokenIndex = tkIdx;
+                            default:
+                                ok = true;
+                                break;
                         }
+                        if (ok)
+                        {
+                            ExpressionSyntax expr;
+                            if (PrefixUnaryExpression(out expr))
+                            {
+                                result = SyntaxFactory.AwaitExpression(Token(SyntaxKind.AwaitKeyword, token.Index), expr);
+                                return true;
+                            }
+                        }
+                        _tokenIndex = tkIdx;
                     }
                     break;
             }
             if (exprKind != SyntaxKind.None)
             {
-                ConsumeToken();
+                ++_tokenIndex;
                 ExpressionSyntax operand;
                 if (!PrefixUnaryExpression(out operand))
                 {
@@ -987,91 +1334,91 @@ namespace CSharpParser
         {
             result = null;
             var token = GetToken();
-            var tokenText = token.Value;
+            var tokenValue = token.Value;
             switch (token.Kind)
             {
-                case (int)TokenKind.NormalString:
-                case (int)TokenKind.VerbatimString:
-                    ConsumeToken();
+                case (int)TokenKind.String:
+                    ++_tokenIndex;
                     result = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-                        SyntaxFactory.Literal(tokenText).Attach(token.Index));
+                        SyntaxFactory.Literal(tokenValue).Attach(token.Index));
                     break;
                 case (int)TokenKind.Char:
-                    ConsumeToken();
+                    ++_tokenIndex;
                     result = SyntaxFactory.LiteralExpression(SyntaxKind.CharacterLiteralExpression,
-                        SyntaxFactory.Literal(tokenText[0]).Attach(token.Index));
+                        SyntaxFactory.Literal(tokenValue[0]).Attach(token.Index));
                     break;
                 case (int)TokenKind.Number:
-                    ConsumeToken();
+                    ++_tokenIndex;
                     result = SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression,
-                        SyntaxFactory.ParseToken(tokenText).Attach(token.Index));
+                        SyntaxFactory.ParseToken(tokenValue).Attach(token.Index));
                     break;
                 case '(':
-                    ConsumeToken();
+                    ++_tokenIndex;
                     result = SyntaxFactory.ParenthesizedExpression(Token(SyntaxKind.OpenParenToken, token.Index), ExpressionExpected(),
                         TokenExpected(')'));
                     break;
-                case (int)TokenKind.NormalIdentifier:
-                    switch (tokenText)
+                case (int)TokenKind.ReservedKeyword:
+                    switch (token.SyntaxKind)
                     {
-                        case "true":
-                            ConsumeToken();
+                        case SyntaxKind.TrueKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression,
                                 Token(SyntaxKind.TrueKeyword, token.Index));
                             break;
-                        case "false":
-                            ConsumeToken();
+                        case SyntaxKind.FalseKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.LiteralExpression(SyntaxKind.FalseLiteralExpression,
                                 Token(SyntaxKind.FalseKeyword, token.Index));
                             break;
-                        case "null":
-                            ConsumeToken();
+                        case SyntaxKind.NullKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression,
                                 Token(SyntaxKind.NullKeyword, token.Index));
                             break;
-                        case "this":
-                            ConsumeToken();
+                        case SyntaxKind.ThisKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.ThisExpression(Token(SyntaxKind.ThisKeyword, token.Index));
                             break;
-                        case "base":
-                            ConsumeToken();
+                        case SyntaxKind.BaseKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.BaseExpression(Token(SyntaxKind.BaseKeyword, token.Index));
                             break;
-                        case "typeof":
-                            ConsumeToken();
+                        case SyntaxKind.TypeOfKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.TypeOfExpression(Token(SyntaxKind.TypeOfKeyword, token.Index),
                                 TokenExpected('('), TypeExpected(), TokenExpected(')'));
                             break;
-                        case "default":
-                            ConsumeToken();
+                        case SyntaxKind.DefaultKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.DefaultExpression(Token(SyntaxKind.DefaultKeyword, token.Index),
                                 TokenExpected('('), TypeExpected(), TokenExpected(')'));
                             break;
-                        case "checked":
-                            ConsumeToken();
+                        case SyntaxKind.CheckedKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.CheckedExpression(SyntaxKind.CheckedExpression, Token(SyntaxKind.CheckedKeyword, token.Index),
                                 TokenExpected('('), ExpressionExpected(), TokenExpected(')'));
                             break;
-                        case "unchecked":
-                            ConsumeToken();
+                        case SyntaxKind.UncheckedKeyword:
+                            ++_tokenIndex;
                             result = SyntaxFactory.CheckedExpression(SyntaxKind.UncheckedExpression, Token(SyntaxKind.UncheckedKeyword, token.Index),
                                 TokenExpected('('), ExpressionExpected(), TokenExpected(')'));
                             break;
-                        case "async":
-                            {
-                                var token2 = GetToken(1);
-                                if (token2.IsKeyword("delegate"))
-                                {
-                                    ConsumeToken();
-                                    result = AnonymousMethodExpression(Token(SyntaxKind.AsyncKeyword, token.Index));
-                                }
-                            }
+                        //case "async":
+                        //    {
+                        //        var token2 = GetToken(1);
+                        //        //if (token2.IsKeyword("delegate"))
+                        //        //{
+                        //        //    ConsumeToken();
+                        //        //    result = AnonymousMethodExpression(Token(SyntaxKind.AsyncKeyword, token.Index));
+                        //        //}
+                        //    }
+                        //    break;
+                        case SyntaxKind.DelegateKeyword:
+                            ++_tokenIndex;
+                            //result = AnonymousMethodExpression(default(SyntaxToken));
                             break;
-                        case "delegate":
-                            result = AnonymousMethodExpression(default(SyntaxToken));
-                            break;
-                        case "new":
-                            ConsumeToken();
+                        case SyntaxKind.NewKeyword:
+                            ++_tokenIndex;
 
 
                             break;
@@ -1102,17 +1449,17 @@ namespace CSharpParser
                     switch (token.Kind)
                     {
                         case '.':
-                            ConsumeToken();
+                            ++_tokenIndex;
                             result = SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, result,
                                 Token(SyntaxKind.DotToken, token.Index), SimpleNameExpected(true));
                             break;
                         case (int)TokenKind.PlusEquals:
-                            ConsumeToken();
+                            ++_tokenIndex;
                             result = SyntaxFactory.PostfixUnaryExpression(SyntaxKind.PostIncrementExpression, result,
                                 Token(SyntaxKind.PlusPlusToken, token.Index));
                             break;
                         case (int)TokenKind.MinusMinus:
-                            ConsumeToken();
+                            ++_tokenIndex;
                             result = SyntaxFactory.PostfixUnaryExpression(SyntaxKind.PostDecrementExpression, result,
                                 Token(SyntaxKind.MinusMinusToken, token.Index));
                             break;
@@ -1129,20 +1476,17 @@ namespace CSharpParser
             }
             return false;
         }
-        private AnonymousMethodExpressionSyntax AnonymousMethodExpression(SyntaxToken asyncKeyword)
-        {
-            return SyntaxFactory.AnonymousMethodExpression(asyncKeyword, KeywordExpected("delegate"), null, null);
-        }
+        //private AnonymousMethodExpressionSyntax AnonymousMethodExpression(SyntaxToken asyncKeyword)
+        //{
+        //    return SyntaxFactory.AnonymousMethodExpression(asyncKeyword, KeywordExpected("delegate"), null, null);
+        //}
 
-        private static readonly HashSet<string> _predefinedTypeNameSet = new HashSet<string> {
-            "sbyte","byte","short","ushort","int","uint","long","ulong","decimal","float","double","bool","string","char","object","void"
-        };
         protected bool PredefinedType(out PredefinedTypeSyntax result)
         {
-            SyntaxToken st;
-            if (Keyword(_predefinedTypeNameSet, out st))
+            var token = GetToken();
+            if (SyntaxFacts.IsPredefinedType(token.SyntaxKind))
             {
-                result = SyntaxFactory.PredefinedType(st);
+                result = SyntaxFactory.PredefinedType(Token(token.SyntaxKind, token.Index));
                 return true;
             }
             result = null;
@@ -1178,6 +1522,7 @@ namespace CSharpParser
                 var ok = true;
                 if (checkNullable)
                 {
+                    //C# spec ???
                     switch (GetToken(1).Kind)
                     {
                         case ';':
@@ -1186,6 +1531,9 @@ namespace CSharpParser
                         case ']':
                         case '}':
                         case '?':
+                        case '&':
+                        case '|':
+                        case '^':
                         case (int)TokenKind.AmpersandAmpersand:
                         case (int)TokenKind.BarBar:
                         case (int)TokenKind.EqualsEquals:
@@ -1199,13 +1547,13 @@ namespace CSharpParser
                 }
                 if (ok)
                 {
-                    ConsumeToken();
+                    ++_tokenIndex;
                     result = SyntaxFactory.NullableType(result, Token(SyntaxKind.QuestionToken, token.Index));
                 }
             }
             if (PeekToken(0, '['))
             {
-                result = SyntaxFactory.ArrayType(result, List(false, _ArrayRankSpecifierSyntaxCreator));
+                result = SyntaxFactory.ArrayType(result, List((int)ArrayRankSpecifierFlag.None, _ArrayRankSpecifierSyntaxCreator));
             }
             return true;
         }
@@ -1214,107 +1562,88 @@ namespace CSharpParser
             TypeSyntax result;
             if (!Type(out result))
             {
-                ErrorAndThrow("Type expected.");
+                TypeExpectedErrorAndThrow();
             }
             return result;
         }
-        protected bool ArrayRankSpecifier(bool allowExpr, out ArrayRankSpecifierSyntax result)
+        protected void TypeExpectedErrorAndThrow()
+        {
+            ErrorAndThrow("Type expected.");
+        }
+
+        protected enum ArrayRankSpecifierFlag
+        {
+            None = 0,
+            AllowExpr = 1,
+        }
+        protected bool ArrayRankSpecifier(int arg, out ArrayRankSpecifierSyntax result)
         {
             SyntaxToken st;
             if (Token('[', out st))
             {
                 result = SyntaxFactory.ArrayRankSpecifier(st,
-                    SeparatedList(allowExpr ? _ExpressionSyntaxCreator : null, _OmittedArraySizeExpressionSyntaxCreator),
-                    TokenExpected(']'));
+                    SeparatedList(((ArrayRankSpecifierFlag)arg) == ArrayRankSpecifierFlag.AllowExpr ? _ExpressionSyntaxCreator : null,
+                    _OmittedArraySizeExpressionSyntaxCreator), TokenExpected(']'));
                 return true;
             }
             result = null;
             return false;
         }
-        protected bool NameStart(bool checkTypeArgs, out NameSyntax result)
-        {
-            if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier))
-            {
-                if (PeekToken(1, (int)TokenKind.ColonColon))
-                {
-                    IdentifierNameSyntax alias;
-                    SyntaxToken globalToken;
-                    if (Keyword("global", out globalToken))
-                    {
-                        alias = SyntaxFactory.IdentifierName(globalToken);
-                    }
-                    else
-                    {
-                        IdentifierName(out alias);
-                    }
-                    result = SyntaxFactory.AliasQualifiedName(alias, TokenExpected((int)TokenKind.ColonColon), SimpleNameExpected(checkTypeArgs));
-                    return true;
-                }
-                SimpleNameSyntax sn;
-                if (SimpleName(checkTypeArgs, out sn))
-                {
-                    result = sn;
-                    return true;
-                }
-            }
-            result = null;
-            return false;
-        }
-
         protected bool Name(out NameSyntax result)
         {
             if (!NameStart(false, out result))
             {
                 return false;
             }
-            while (true)
+            SyntaxToken dot;
+            while (Token('.', out dot))
             {
-                SyntaxToken dot;
-                if (Token('.', out dot))
-                {
-                    result = SyntaxFactory.QualifiedName(result, dot, SimpleNameExpected(false));
-                }
-                else
-                {
-                    break;
-                }
+                result = SyntaxFactory.QualifiedName(result, dot, SimpleNameExpected(false));
             }
             return true;
         }
-        //protected bool AliasQualifiedName(out AliasQualifiedNameSyntax result)
-        //{
-        //    if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier)
-        //        && PeekToken(1, (int)TokenKind.ColonColon))
-        //    {
-        //        IdentifierNameSyntax alias;
-        //        SyntaxToken globalToken;
-        //        if (Keyword(SyntaxKind.GlobalKeyword, out globalToken))
-        //        {
-        //            alias = SyntaxFactory.IdentifierName(globalToken);
-        //        }
-        //        else
-        //        {
-        //            IdentifierName(out alias);
-        //        }
-        //        SyntaxToken colonColonToken;
-        //        Token((int)TokenKind.ColonColon, out colonColonToken);
-        //        result = SyntaxFactory.AliasQualifiedName(alias, colonColonToken, SimpleNameExpected());
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
+        protected bool NameStart(bool checkTypeArgs, out NameSyntax result)
+        {
+            var idToken = GetToken();
+            if (idToken.IsIdentifier)
+            {
+                var colonColonToken = GetToken(1);
+                if (colonColonToken.TokenKind == TokenKind.ColonColon)
+                {
+                    IdentifierNameSyntax alias;
+                    if (idToken.IsKeyword("global"))
+                    {
+                        alias = SyntaxFactory.IdentifierName(Token(SyntaxKind.GlobalKeyword, idToken.Index));
+                    }
+                    else
+                    {
+                        alias = SyntaxFactory.IdentifierName(Identifier(idToken));
+                    }
+                    _tokenIndex += 2;
+                    result = SyntaxFactory.AliasQualifiedName(alias, Token(SyntaxKind.ColonColonToken, colonColonToken.Index),
+                        SimpleNameExpected(checkTypeArgs));
+                    return true;
+                }
+                SimpleNameSyntax sn;
+                SimpleName(checkTypeArgs, out sn);
+                result = sn;
+                return true;
+            }
+            result = null;
+            return false;
+        }
+
         protected bool SimpleName(bool checkTypeArgs, out SimpleNameSyntax result)
         {
             var idToken = GetToken();
             if (idToken.IsIdentifier)
             {
-                ConsumeToken();
+                ++_tokenIndex;
                 var ltToken = GetToken();
                 if (ltToken.Kind == '<')
                 {
                     var tkIdx = _tokenIndex;
-                    ConsumeToken();
+                    ++_tokenIndex;
                     var typeArgs = SeparatedList(_TypeSyntaxCreator, _OmittedTypeArgumentSyntaxCreator);
                     SyntaxToken gtToken;
                     if (Token('>', out gtToken))
@@ -1357,24 +1686,6 @@ namespace CSharpParser
                 result = SyntaxFactory.IdentifierName(Identifier(idToken));
                 return true;
             }
-
-
-            //if (PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier))
-            //{
-            //    if (PeekToken(1, '<'))
-            //    {
-            //        GenericNameSyntax gn;
-            //        GenericName(out gn);
-            //        result = gn;
-            //    }
-            //    else
-            //    {
-            //        IdentifierNameSyntax i;
-            //        IdentifierName(out i);
-            //        result = i;
-            //    }
-            //    return true;
-            //}
             result = null;
             return false;
         }
@@ -1389,47 +1700,15 @@ namespace CSharpParser
         }
         protected bool IdentifierName(out IdentifierNameSyntax result)
         {
-            SyntaxToken identifier;
-            if (Identifier(out identifier))
+            SyntaxToken st;
+            if (Identifier(out st))
             {
-                result = SyntaxFactory.IdentifierName(identifier);
+                result = SyntaxFactory.IdentifierName(st);
                 return true;
             }
             result = null;
             return false;
         }
-        //protected bool GenericName(out GenericNameSyntax result)
-        //{
-        //    SyntaxToken identifier;
-        //    if (Identifier(out identifier))
-        //    {
-        //        result = SyntaxFactory.GenericName(identifier, TypeArgumentListExpected());
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
-        //protected bool TypeArgumentList(out TypeArgumentListSyntax result)
-        //{
-        //    SyntaxToken lessThanToken;
-        //    if (Token('<', out lessThanToken))
-        //    {
-        //        var arguments = SeparatedList(_TypeSyntaxCreator, ',', false, _OmittedTypeArgumentSyntaxCreator);
-        //        result = SyntaxFactory.TypeArgumentList(lessThanToken, arguments, TokenExpected('>'));
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
-        //protected TypeArgumentListSyntax TypeArgumentListExpected()
-        //{
-        //    TypeArgumentListSyntax result;
-        //    if (!TypeArgumentList(out result))
-        //    {
-        //        ErrorAndThrow("Type argument list expected.");
-        //    }
-        //    return result;
-        //}
 
         //
         //
@@ -1437,15 +1716,15 @@ namespace CSharpParser
 
         protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result)
         {
-            SyntaxToken externKeyword;
-            if (Keyword("extern", out externKeyword))
-            {
-                var aliasKeyword = KeywordExpected("alias");
-                var identifier = IdentifierExpected();
-                var semicolonToken = TokenExpected(';');
-                result = SyntaxFactory.ExternAliasDirective(externKeyword, aliasKeyword, identifier, semicolonToken);
-                return true;
-            }
+            //SyntaxToken externKeyword;
+            //if (Keyword("extern", out externKeyword))
+            //{
+            //    var aliasKeyword = KeywordExpected("alias");
+            //    var identifier = IdentifierExpected();
+            //    var semicolonToken = TokenExpected(';');
+            //    result = SyntaxFactory.ExternAliasDirective(externKeyword, aliasKeyword, identifier, semicolonToken);
+            //    return true;
+            //}
             result = null;
             return false;
         }
@@ -1453,1317 +1732,6 @@ namespace CSharpParser
 
 
 
-
-        //protected bool Token(int kind, out Token token) {
-        //    var tk = GetToken();
-        //    if (tk.Kind == kind) {
-        //        token = tk;
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    token = default(Token);
-        //    return false;
-        //}
-        //protected bool Token(int kind) {
-        //    if (GetToken().Kind == kind) {
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    return false;
-        //}
-        //protected bool Token(TokenKind tokenKind) {
-        //    return Token((int)tokenKind);
-        //}
-        //protected void TokenExpected(char ch) {
-        //    if (!Token(ch)) {
-        //        ErrorAndThrow(ch.ToString() + " expected.");
-        //    }
-        //}
-        //protected void TokenExpected(int kind, string errMsg) {
-        //    if (!Token(kind)) {
-        //        ErrorAndThrow(errMsg);
-        //    }
-        //}
-        //protected void TokenExpected(TokenKind tokenKind, string errMsg) {
-        //    TokenExpected((int)tokenKind, errMsg);
-        //}
-        //
-        //
-        //
-
-
-
-
-
-
-
-
-
-
-
-
-        //
-        //
-        //
-
-
-
-
-        //public void TokenExpected(char ch, out TextSpan textSpan) {
-        //    if (!Token(ch, out textSpan)) {
-        //        ErrorAndThrow(ch.ToString() + " expected.");
-        //    }
-        //}
-        //protected void TokenExpected(int kind, string errMsg, out TextSpan textSpan) {
-        //    if (!Token(kind, out textSpan)) {
-        //        ErrorAndThrow(errMsg);
-        //    }
-        //}
-        //protected void EndOfFileExpected() {
-        //    TokenExpected(char.MaxValue, "End of file expected.");
-        //}
-        //protected bool Name(out NameNode result) {
-        //    var token = GetToken();
-        //    if (IsIdentifierToken(token.TokenKind)) {
-        //        result = new NameNode(token.Value, GetTextSpan(token));
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    result = default(NameNode);
-        //    return false;
-        //}
-        //protected NameNode NameExpected() {
-        //    NameNode name;
-        //    if (!Name(out name)) {
-        //        ErrorAndThrow("Name expected.");
-        //    }
-        //    return name;
-        //}
-        //protected bool Keyword(string keywordValue) {
-        //    var token = GetToken();
-        //    if (token.IsIdentifier && token.Value == keywordValue) {
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    return false;
-        //}
-        //protected void KeywordExpected(string keywordValue) {
-        //    if (!Keyword(keywordValue)) {
-        //        ErrorAndThrow(keywordValue + " expetced.");
-        //    }
-        //}
-        //protected bool Keyword(string keywordValue, out NameNode keyword) {
-        //    var token = GetToken();
-        //    if (token.TokenKind == TokenKind.Name && token.Value == keywordValue) {
-        //        keyword = new NameNode(keywordValue, GetTextSpan(token));
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    keyword = default(NameNode);
-        //    return false;
-        //}
-        //protected bool Keyword(string keywordValue, out TextSpan textSpan) {
-        //    var token = GetToken();
-        //    if (token.TokenKind == TokenKind.Name && token.Value == keywordValue) {
-        //        textSpan = GetTextSpan(token);
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    textSpan = default(TextSpan);
-        //    return false;
-        //}
-        //protected bool QName(out QNameNode result) {
-        //    NameNode name;
-        //    if (Name(out name)) {
-        //        if (Token(TokenKind.ColonColon)) {
-        //            result = new QNameNode(name, NameExpected());
-        //        }
-        //        else {
-        //            result = new QNameNode(default(NameNode), name);
-        //        }
-        //        return true;
-        //    }
-        //    result = default(QNameNode);
-        //    return false;
-        //}
-        //protected QNameNode QNameExpected() {
-        //    QNameNode qName;
-        //    if (!QName(out qName)) {
-        //        ErrorAndThrow("Qualifiable name expected.");
-        //    }
-        //    return qName;
-        //}
-
-        //protected bool AtomValue(out AtomValueNode result, bool takeNumberSign) {
-        //    var tk = GetToken();
-        //    var tkKind = tk.Kind;
-        //    string sign = null;
-        //    if (takeNumberSign) {
-        //        if (tkKind == '-') {
-        //            sign = "-";
-        //        }
-        //        else if (tkKind == '+') {
-        //            sign = "+";
-        //        }
-        //        if (sign != null) {
-        //            if (!IsNumberToken(GetToken(1).Kind)) {
-        //                result = default(AtomValueNode);
-        //                return false;
-        //            }
-        //            ConsumeToken();
-        //            tk = GetToken();
-        //            tkKind = tk.Kind;
-        //        }
-        //    }
-        //    var text = tk.Value;
-        //    var typeKind = TypeKind.None;
-        //    object value = null;
-        //    switch ((TokenKind)tkKind) {
-        //        case TokenKind.StringValue:
-        //        case TokenKind.VerbatimStringValue:
-        //            typeKind = TypeKind.String;
-        //            value = text;
-        //            break;
-        //        case TokenKind.CharValue:
-        //            typeKind = TypeKind.Char;
-        //            value = text[0];
-        //            break;
-        //        case TokenKind.Name:
-        //            if (text == "null") {
-        //                typeKind = TypeKind.Null;
-        //            }
-        //            else if (text == "true") {
-        //                typeKind = TypeKind.Boolean;
-        //                value = true;
-        //            }
-        //            else if (text == "false") {
-        //                typeKind = TypeKind.Boolean;
-        //                value = false;
-        //            }
-        //            break;
-        //        case TokenKind.IntegerValue: {
-        //                if (sign != null) text = sign + text;
-        //                int intv;
-        //                if (AtomExtensions.TryInvParse(text, out intv)) {
-        //                    value = intv;
-        //                    typeKind = TypeKind.Int32;
-        //                }
-        //                else {
-        //                    long longv;
-        //                    if (AtomExtensions.TryInvParse(text, out longv)) {
-        //                        value = longv;
-        //                        typeKind = TypeKind.Int64;
-        //                    }
-        //                    else {
-        //                        ulong ulongv;
-        //                        if (AtomExtensions.TryInvParse(text, out ulongv)) {
-        //                            value = ulongv;
-        //                            typeKind = TypeKind.UInt64;
-        //                        }
-        //                        else {
-        //                            ErrorAndThrow(new DiagMsg(DiagCode.InvalidAtomValue, "Int32, Int64 or UInt64", text), GetTextSpan(tk));
-        //                        }
-        //                    }
-        //                }
-        //            }
-        //            break;
-        //        case TokenKind.DecimalValue:
-        //        case TokenKind.RealValue: {
-        //                if (sign != null) text = sign + text;
-        //                double doublev;
-        //                if (!AtomExtensions.TryInvParse(text, out doublev)) {
-        //                    ErrorAndThrow(new DiagMsg(DiagCode.InvalidAtomValue, "Double", text), GetTextSpan(tk));
-        //                }
-        //                value = doublev;
-        //                typeKind = TypeKind.Double;
-        //            }
-        //            break;
-        //    }
-        //    if (typeKind != TypeKind.None) {
-        //        result = new AtomValueNode(true, typeKind, value, text, GetTextSpan(tk));
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    if (tkKind == '$') {
-        //        ConsumeToken();
-        //        var typeNameNode = NameExpected();
-        //        var typeName = typeNameNode.Value;
-        //        typeKind = AtomTypeMd.GetTypeKind(typeName);
-        //        if (typeKind == TypeKind.None) {
-        //            ErrorAndThrow("fdfd");
-        //        }
-        //        TokenExpected('(');
-        //        tk = GetToken();
-        //        text = tk.Value;
-        //        tkKind = tk.Kind;
-        //        switch (typeKind) {
-        //            case TypeKind.String:
-        //            case TypeKind.IgnoreCaseString:
-        //            case TypeKind.Guid:
-        //            case TypeKind.TimeSpan:
-        //            case TypeKind.DateTimeOffset:
-        //                if (!IsStringToken(tkKind)) {
-        //                    ErrorAndThrow("String value expected.", tk);
-        //                }
-        //                break;
-        //            case TypeKind.Char:
-        //                if (tkKind != (int)TokenKind.CharValue) {
-        //                    ErrorAndThrow("Char value expected.", tk);
-        //                }
-        //                break;
-        //            case TypeKind.Boolean:
-        //                if (tkKind != (int)TokenKind.Name) {
-        //                    ErrorAndThrow("Name value expected.", tk);
-        //                }
-        //                break;
-        //            case TypeKind.Decimal:
-        //            case TypeKind.Int64:
-        //            case TypeKind.Int32:
-        //            case TypeKind.Int16:
-        //            case TypeKind.SByte:
-        //            case TypeKind.UInt64:
-        //            case TypeKind.UInt32:
-        //            case TypeKind.UInt16:
-        //            case TypeKind.Byte:
-        //            case TypeKind.Double:
-        //            case TypeKind.Single:
-        //                sign = null;
-        //                if (tkKind == '-') {
-        //                    sign = "-";
-        //                }
-        //                else if (tkKind == '+') {
-        //                    sign = "+";
-        //                }
-        //                if (sign != null) {
-        //                    ConsumeToken();
-        //                    tk = GetToken();
-        //                    tkKind = tk.Kind;
-        //                }
-        //                if (IsNumberToken(tkKind)) {
-        //                    if (sign != null) text = sign + text;
-        //                }
-        //                else {
-        //                    if (sign != null || (typeKind != TypeKind.Double && typeKind == TypeKind.Single)) {
-        //                        ErrorAndThrow("Number value expected.", tk);
-        //                    }
-        //                    if (!IsStringToken(tkKind)) {
-        //                        ErrorAndThrow("String value expected.", tk);
-        //                    }
-        //                }
-        //                break;
-        //            case TypeKind.Binary:
-        //                if (tkKind == (int)TokenKind.IntegerValue) {
-        //                    var bin = new Binary();
-        //                    byte by;
-        //                    if (!AtomExtensions.TryInvParse(text, out by)) {
-        //                        ErrorAndThrow("Byte value expected.", tk);
-        //                    }
-        //                    bin.Add(by);
-        //                    ConsumeToken();
-        //                    while (Token(',')) {
-        //                        tk = GetToken();
-        //                        if (!AtomExtensions.TryInvParse(tk.Value, out by)) {
-        //                            ErrorAndThrow("Byte value expected.", tk);
-        //                        }
-        //                        bin.Add(by);
-        //                        ConsumeToken();
-        //                    }
-        //                    TokenExpected(')');
-        //                    result = new AtomValueNode(false, TypeKind.Binary, bin, "$Binary(...)", typeNameNode.TextSpan);
-        //                    return true;
-        //                }
-        //                else if (tkKind == ')') {
-        //                    ConsumeToken();
-        //                    result = new AtomValueNode(false, TypeKind.Binary, new Binary(), "$Binary()", typeNameNode.TextSpan);
-        //                    return true;
-        //                }
-        //                else if (!IsStringToken(tkKind)) {
-        //                    ErrorAndThrow("String value expected.", tk);
-        //                }
-        //                break;
-        //            default:
-        //                throw new ArgumentException("Invalid type kind: " + typeKind.ToString());
-        //        }
-        //        value = AtomExtensions.TryParse(typeKind, text);
-        //        if (value == null) {
-        //            ErrorAndThrow("fdf");
-        //        }
-        //        ConsumeToken();
-        //        TokenExpected(')');
-        //        result = new AtomValueNode(false, typeKind, value, text, GetTextSpan(tk));
-        //        return true;
-        //    }
-        //    result = default(AtomValueNode);
-        //    return false;
-        //}
-        //protected AtomValueNode AtomValueExpected(bool takeNumberSign) {
-        //    AtomValueNode av;
-        //    if (!AtomValue(out av, takeNumberSign)) {
-        //        ErrorAndThrow("Atom value expected.");
-        //    }
-        //    return av;
-        //}
-        //protected AtomValueNode NonNullAtomValueExpected(bool takeNumberSign) {
-        //    var av = AtomValueExpected(takeNumberSign);
-        //    if (av.IsNull) {
-        //        ErrorAndThrow("Non-null atom value expected.", av.TextSpan);
-        //    }
-        //    return av;
-        //}
-        //protected bool StringValue(out AtomValueNode result) {
-        //    var token = GetToken();
-        //    if (IsStringToken(token.TokenKind)) {
-        //        result = new AtomValueNode(true, TypeKind.String, token.Value, token.Value, GetTextSpan(token));
-        //        ConsumeToken();
-        //        return true;
-        //    }
-        //    result = default(AtomValueNode);
-        //    return false;
-        //}
-        //protected AtomValueNode StringValueExpected() {
-        //    AtomValueNode av;
-        //    if (!StringValue(out av)) {
-        //        ErrorAndThrow("String value expected.");
-        //    }
-        //    return av;
-        //}
-        //protected AtomValueNode UriExpected() {
-        //    var uri = StringValueExpected();
-        //    if (uri.Text == Extensions.SystemUri) {
-        //        ErrorAndThrow(new DiagMsg(DiagCode.UriReserved), uri.TextSpan);
-        //    }
-        //    return uri;
-        //}
-        //protected NameNode AliasExpected() {
-        //    var aliasNode = NameExpected();
-        //    var alias = aliasNode.Value;
-        //    if (alias == "sys" || alias == "thisns") {
-        //        ErrorAndThrow(new DiagMsg(DiagCode.AliasReserved), aliasNode.TextSpan);
-        //    }
-        //    return aliasNode;
-        //}
-
-        //
-        //
-        //expr
-        //
-        //
-        //protected bool ExpressionValue(out ExpressionValue result) {
-        //    AtomValueNode av;
-        //    if (AtomValue(out av, true)) {
-        //        result = new AtomExpressionValue(av.TextSpan, av.Kind, av.Value, av.IsImplicit);
-        //        return true;
-        //    }
-        //    TextSpan ts;
-        //    if (Token('[', out ts)) {
-        //        List<ExpressionValue> items = null;
-        //        while (true) {
-        //            if (items != null) {
-        //                if (!Token(',')) {
-        //                    break;
-        //                }
-        //            }
-        //            ExpressionValue item;
-        //            if (ExpressionValue(out item)) {
-        //                if (items == null) {
-        //                    items = new List<ExpressionValue>();
-        //                }
-        //                items.Add(item);
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //        }
-        //        TokenExpected(']');
-        //        result = new ListExpressionValue(ts, items);
-        //        return true;
-        //    }
-        //    if (Token('{', out ts)) {
-        //        List<NamedExpressionValue> members = null;
-        //        while (true) {
-        //            if (members != null) {
-        //                if (!Token(',')) {
-        //                    break;
-        //                }
-        //            }
-        //            NameNode nameNode;
-        //            if (Name(out nameNode)) {
-        //                var name = nameNode.Value;
-        //                if (members != null) {
-        //                    foreach (var item in members) {
-        //                        if (item.Name == name) {
-        //                            ErrorAndThrow("fdsf");
-        //                        }
-        //                    }
-        //                }
-        //                TokenExpected('=');
-        //                if (members == null) {
-        //                    members = new List<NamedExpressionValue>();
-        //                }
-        //                members.Add(new NamedExpressionValue(name, ExpressionValueExpected()));
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //        }
-        //        TokenExpected('}');
-        //        result = new ObjectExpressionValue(ts, members);
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
-        //protected ExpressionValue ExpressionValueExpected() {
-        //    ExpressionValue v;
-        //    if (!ExpressionValue(out v)) {
-        //        ErrorAndThrow("Expression value expected.");
-        //    }
-        //    return v;
-        //}
-
-        //protected List<NamedExpressionValue> ExpressionArguments() {
-        //    List<NamedExpressionValue> list = null;
-        //    NameNode nameNode;
-        //    while (Name(out nameNode)) {
-        //        var name = nameNode.Value;
-        //        if (list == null) {
-        //            list = new List<NamedExpressionValue>();
-        //        }
-        //        else {
-        //            foreach (var item in list) {
-        //                if (item.Name == name) {
-        //                    ErrorAndThrow(new DiagMsg(DiagCode.DuplicateExpressionArgumentName, name), nameNode.TextSpan);
-        //                }
-        //            }
-        //        }
-        //        TokenExpected('=');
-        //        list.Add(new NamedExpressionValue(name, ExpressionValueExpected()));
-        //    }
-        //    return list;
-        //}
-        //protected ExpressionNode Expression(ExpressionContext ctx) {
-        //    var uriAliasList = ctx.UriAliasList;
-        //    while (Token('#')) {
-        //        KeywordExpected(ParserKeywords.ImportKeyword);
-        //        var uriNode = UriExpected();
-        //        var uri = uriNode.Text;
-        //        if (!ProgramMd.IsUriDefined(uri)) {
-        //            ErrorAndThrow(new DiagMsg(DiagCode.InvalidUriReference, uri), uriNode.TextSpan);
-        //        }
-        //        string alias = null;
-        //        if (Keyword(ParserKeywords.AsKeyword)) {
-        //            var aliasNode = AliasExpected();
-        //            alias = aliasNode.Value;
-        //            if (uriAliasList.Count > 0) {
-        //                foreach (var item in uriAliasList) {
-        //                    if (item.Alias == alias) {
-        //                        ErrorAndThrow(new DiagMsg(DiagCode.DuplicateAlias, alias), aliasNode.TextSpan);
-        //                    }
-        //                }
-        //            }
-        //        }
-        //        uriAliasList.Add(new UriAliasNode(uri, alias));
-        //    }
-        //    return ExpressionExpected(ctx);
-        //}
-        //private void ExpressionExpectedErrorAndThrow() {
-        //    ErrorAndThrow("Expression expected.");
-        //}
-        //private ExpressionNode ExpressionExpected(ExpressionContext ctx) {
-        //    ExpressionNode r;
-        //    if (!Expression(ctx, out r)) {
-        //        ExpressionExpectedErrorAndThrow();
-        //    }
-        //    return r;
-        //}
-        //private NameNode LambdaParameterName(ExpressionContext ctx) {
-        //    var nameNode = NameExpected();
-        //    ctx.CheckLambdaParameterName(nameNode);
-        //    return nameNode;
-        //}
-        //private bool Expression(ExpressionContext ctx, out ExpressionNode result) {
-        //    object lambdaParaOrList = null;
-        //    var tk0Kind = GetToken().Kind;
-        //    if (IsIdentifierToken(tk0Kind)) {
-        //        if (GetToken(1).TokenKind == TokenKind.EqualsGreaterThan) {
-        //            var nameNode = LambdaParameterName(ctx);
-        //            //lambdaParaOrList = new LambdaParameterNode();
-        //        }
-        //    }
-        //    else if (tk0Kind == '(') {
-        //        var tk1Kind = GetToken(1).Kind;
-        //        if (IsIdentifierToken(tk1Kind)) {
-        //            var tk2Kind = GetToken(2).Kind;
-        //            if (tk2Kind == ')') {
-        //                if (GetToken(3).TokenKind == TokenKind.EqualsGreaterThan) {
-        //                    ConsumeToken();// (
-        //                    var nameNode = LambdaParameterName(ctx);
-        //                    //lambdaParaOrList = new LambdaParameterNode(NameExpected());
-        //                    ConsumeToken();// )
-        //                }
-        //            }
-        //            else if (tk2Kind == ',') {
-        //                ConsumeToken();// (
-        //                var nameNode = LambdaParameterName(ctx);
-        //                var list = new List<LambdaParameterNode> { new LambdaParameterNode(nameNode.Value, null) };
-        //                while (Token(',')) {
-        //                    nameNode = LambdaParameterName(ctx);
-        //                    var name = nameNode.Value;
-        //                    foreach (var item in list) {
-        //                        if (item.Name == name) {
-        //                            ErrorAndThrow(new DiagMsg(DiagCode.DuplicateLambdaParameterName, name), nameNode.TextSpan);
-        //                        }
-        //                    }
-        //                    list.Add(new LambdaParameterNode(nameNode.Value, null));
-        //                }
-        //                TokenExpected(')');
-        //                lambdaParaOrList = list;
-        //            }
-        //        }
-        //        else if (tk1Kind == ')') {
-        //            ConsumeToken();// (
-        //            ConsumeToken();// )
-        //            //lambdaParaOrList = new LambdaParameterNodeList();
-        //        }
-        //    }
-        //    if (lambdaParaOrList != null) {
-        //        TextSpan ts;
-        //        TokenExpected((int)TokenKind.EqualsGreaterThan, "=> expected.", out ts);
-        //        if (lambdaParaOrList != null) {
-        //            ctx.PushLambdaParameter(lambdaParaOrList);
-        //        }
-        //        var body = ExpressionExpected(ctx);
-        //        if (lambdaParaOrList != null) {
-        //            ctx.PopLambdaParameter();
-        //        }
-        //        result = new LambdaExpressionNode(ts, null, lambdaParaOrList, body);
-        //        return true;
-        //    }
-        //    return ConditionalExpression(ctx, out result);
-        //}
-        //private bool ConditionalExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    ExpressionNode condition;
-        //    if (CoalesceExpression(ctx, out condition)) {
-        //        TextSpan ts;
-        //        ExpressionNode whenTrue = null, whenFalse = null;
-        //        if (Token('?', out ts)) {
-        //            whenTrue = ExpressionExpected(ctx);
-        //            TokenExpected(':');
-        //            whenFalse = ExpressionExpected(ctx);
-        //        }
-        //        if (whenTrue == null) {
-        //            result = condition;
-        //        }
-        //        else {
-        //            result = new ConditionalExpressionNode(ts, null, condition, whenTrue, whenFalse);
-        //        }
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
-        //private bool CoalesceExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    ExpressionNode left;
-        //    if (OrElseExpression(ctx, out left)) {
-        //        TextSpan ts;
-        //        ExpressionNode right = null;
-        //        if (Token((int)TokenKind.QuestionQuestion, out ts)) {
-        //            if (!CoalesceExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //        }
-        //        if (right == null) {
-        //            result = left;
-        //        }
-        //        else {
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.Coalesce, null, left, right);
-        //        }
-        //        return true;
-        //    }
-        //    result = null;
-        //    return false;
-        //}
-        //private bool OrElseExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (AndAlsoExpression(ctx, out result)) {
-        //        TextSpan ts;
-        //        while (Token((int)TokenKind.BarBar, out ts)) {
-        //            ExpressionNode right;
-        //            if (!AndAlsoExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.OrElse, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool AndAlsoExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (OrExpression(ctx, out result)) {
-        //        TextSpan ts;
-        //        while (Token((int)TokenKind.AmpersandAmpersand, out ts)) {
-        //            ExpressionNode right;
-        //            if (!OrExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.AndAlso, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool OrExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (ExclusiveOrExpression(ctx, out result)) {
-        //        TextSpan ts;
-        //        while (Token('|', out ts)) {
-        //            ExpressionNode right;
-        //            if (!ExclusiveOrExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.Or, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool ExclusiveOrExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (AndExpression(ctx, out result)) {
-        //        TextSpan ts;
-        //        while (Token('^', out ts)) {
-        //            ExpressionNode right;
-        //            if (!AndExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.ExclusiveOr, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool AndExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (EqualityExpression(ctx, out result)) {
-        //        TextSpan ts;
-        //        while (Token('&', out ts)) {
-        //            ExpressionNode right;
-        //            if (!EqualityExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, ExpressionKind.And, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool EqualityExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (RelationalExpression(ctx, out result)) {
-        //        while (true) {
-        //            TextSpan ts;
-        //            ExpressionKind kind;
-        //            if (Token((int)TokenKind.EqualsEquals, out ts)) {
-        //                kind = ExpressionKind.Equal;
-        //            }
-        //            else if (Token((int)TokenKind.ExclamationEquals, out ts)) {
-        //                kind = ExpressionKind.NotEqual;
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //            ExpressionNode right;
-        //            if (!RelationalExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, kind, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool RelationalExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (ShiftExpression(ctx, out result)) {
-        //        while (true) {
-        //            TextSpan ts;
-        //            ExpressionKind kind;
-        //            if (Token('<', out ts)) {
-        //                kind = ExpressionKind.LessThan;
-        //            }
-        //            else if (Token((int)TokenKind.LessThanEquals, out ts)) {
-        //                kind = ExpressionKind.LessThanOrEqual;
-        //            }
-        //            else if (Token('>', out ts)) {
-        //                kind = ExpressionKind.GreaterThan;
-        //            }
-        //            else if (Token((int)TokenKind.GreaterThanEquals, out ts)) {
-        //                kind = ExpressionKind.GreaterThanOrEqual;
-        //            }
-        //            else if (Keyword(ParserKeywords.IsKeyword, out ts)) {
-        //                kind = ExpressionKind.TypeIs;
-        //            }
-        //            else if (Keyword(ParserKeywords.AsKeyword, out ts)) {
-        //                kind = ExpressionKind.TypeAs;
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //            if (kind == ExpressionKind.TypeIs || kind == ExpressionKind.TypeAs) {
-        //                var qName = QNameExpected();
-        //                result = new TypedExpressionNode(qName.TextSpan, kind, null, ctx.ResolveAsGlobalType(qName), result);
-        //            }
-        //            else {
-        //                ExpressionNode right;
-        //                if (!ShiftExpression(ctx, out right)) {
-        //                    ExpressionExpectedErrorAndThrow();
-        //                }
-        //                result = new BinaryExpressionNode(ts, kind, null, result, right);
-        //            }
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool ShiftExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (AdditiveExpression(ctx, out result)) {
-        //        while (true) {
-        //            TextSpan ts;
-        //            var kind = ExpressionKind.None;
-        //            if (Token((int)TokenKind.LessThanLessThan, out ts)) {
-        //                kind = ExpressionKind.LeftShift;
-        //            }
-        //            else {
-        //                var tk0 = GetToken();
-        //                if (tk0.Kind == '>') {
-        //                    var tk1 = GetToken(1);
-        //                    if (tk1.Kind == '>') {
-        //                        if (tk0.StartIndex + 1 == tk1.StartIndex) {
-        //                            ConsumeToken();
-        //                            ConsumeToken();
-        //                            ts = GetTextSpan(tk1);
-        //                            kind = ExpressionKind.RightShift;
-        //                        }
-        //                    }
-        //                }
-        //            }
-        //            if (kind == ExpressionKind.None) {
-        //                break;
-        //            }
-        //            ExpressionNode right;
-        //            if (!AdditiveExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, kind, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool AdditiveExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (MultiplicativeExpression(ctx, out result)) {
-        //        while (true) {
-        //            TextSpan ts;
-        //            ExpressionKind kind;
-        //            if (Token('+', out ts)) {
-        //                kind = ExpressionKind.Add;
-        //            }
-        //            else if (Token('-', out ts)) {
-        //                kind = ExpressionKind.Subtract;
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //            ExpressionNode right;
-        //            if (!MultiplicativeExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, kind, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool MultiplicativeExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    if (PrefixUnaryExpression(ctx, out result)) {
-        //        while (true) {
-        //            TextSpan ts;
-        //            ExpressionKind kind;
-        //            if (Token('*', out ts)) {
-        //                kind = ExpressionKind.Multiply;
-        //            }
-        //            else if (Token('/', out ts)) {
-        //                kind = ExpressionKind.Divide;
-        //            }
-        //            else if (Token('%', out ts)) {
-        //                kind = ExpressionKind.Modulo;
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //            ExpressionNode right;
-        //            if (!PrefixUnaryExpression(ctx, out right)) {
-        //                ExpressionExpectedErrorAndThrow();
-        //            }
-        //            result = new BinaryExpressionNode(ts, kind, null, result, right);
-        //        }
-        //    }
-        //    return result != null;
-        //}
-        //private bool PrefixUnaryExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    var kind = ExpressionKind.None;
-        //    var tk0 = GetToken();
-        //    var tk0Kind = tk0.Kind;
-        //    if (tk0Kind == '!') {
-        //        kind = ExpressionKind.Not;
-        //    }
-        //    else if (tk0Kind == '-') {
-        //        kind = ExpressionKind.Negate;
-        //    }
-        //    else if (tk0Kind == '+') {
-        //        kind = ExpressionKind.UnaryPlus;
-        //    }
-        //    else if (tk0Kind == '~') {
-        //        kind = ExpressionKind.OnesComplement;
-        //    }
-        //    if (kind != ExpressionKind.None) {
-        //        ConsumeToken();
-        //        ExpressionNode expr;
-        //        if (!PrefixUnaryExpression(ctx, out expr)) {
-        //            ExpressionExpectedErrorAndThrow();
-        //        }
-        //        result = new UnaryExpressionNode(GetTextSpan(tk0), kind, null, expr);
-        //        return true;
-        //    }
-        //    if (tk0Kind == '(') {
-        //        var tk1Kind = GetToken(1).Kind;
-        //        if (IsIdentifierToken(tk1Kind)) {
-        //            var isOk = false;
-        //            var tk2Kind = GetToken(2).Kind;
-        //            if (tk2Kind == ')') {
-        //                var tk3Kind = GetToken(3).Kind;
-        //                isOk = tk3Kind != '-' && tk3Kind != '+';
-        //            }
-        //            else if (tk2Kind == (int)TokenKind.ColonColon) {
-        //                var tk3Kind = GetToken(3).Kind;
-        //                if (IsIdentifierToken(tk3Kind)) {
-        //                    var tk4Kind = GetToken(4).Kind;
-        //                    if (tk4Kind == ')') {
-        //                        var tk5Kind = GetToken(5).Kind;
-        //                        isOk = tk5Kind != '-' && tk5Kind != '+';
-        //                    }
-        //                }
-        //            }
-        //            if (isOk) {
-        //                ConsumeToken();// (
-        //                var qName = QNameExpected();
-        //                ConsumeToken();// )
-        //                ExpressionNode expr;
-        //                if (PrefixUnaryExpression(ctx, out expr)) {
-        //                    result = new TypedExpressionNode(qName.TextSpan, ExpressionKind.Convert, null, ctx.ResolveAsGlobalType(qName), expr);
-        //                    return true;
-        //                }
-        //                result = new QualifiableNameExpressionNode(qName.TextSpan, ctx.Resolve(qName));
-        //                return true;
-        //            }
-        //        }
-        //    }
-        //    return PrimaryExpression(ctx, out result);
-        //}
-        //private bool PrimaryExpression(ExpressionContext ctx, out ExpressionNode result) {
-        //    ExpressionNode expr = null;
-        //    TextSpan ts;
-        //    AtomValueNode av;
-        //    if (AtomValue(out av, false)) {
-        //        if (av.IsNull) {
-        //            expr = new LiteralExpressionNode(av.TextSpan, NullTypeMd.Instance, null);
-        //        }
-        //        else {
-        //            expr = new LiteralExpressionNode(av.TextSpan, AtomTypeMd.Get(av.Kind), av.Value);
-        //        }
-        //    }
-        //    else if (Token('#')) {
-        //        var argName = NameExpected();
-
-        //    }
-        //    else if (Token('(')) {//Parenthesized
-        //        var op = ExpressionExpected(ctx);
-        //        TokenExpected(')');
-        //        expr = op;
-        //    }
-        //    else if (Keyword(ParserKeywords.NewKeyword, out ts)) {
-        //        TokenExpected('{');
-        //        List<NamedExpressionNode> members = null;
-        //        while (true) {
-        //            if (members != null) {
-        //                if (!Token(',')) {
-        //                    break;
-        //                }
-        //            }
-        //            NameNode nameNode;
-        //            if (Name(out nameNode)) {
-        //                var name = nameNode.Value;
-        //                if (members != null) {
-        //                    foreach (var item in members) {
-        //                        if (item.Name == name) {
-        //                            ErrorAndThrow("fdsf");
-        //                        }
-        //                    }
-        //                }
-        //                TokenExpected('=');
-        //                if (members == null) {
-        //                    members = new List<NamedExpressionNode>();
-        //                }
-        //                members.Add(new NamedExpressionNode(name, ExpressionExpected(ctx)));
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //        }
-        //        TokenExpected('}');
-        //        expr = new ObjectExpressionNode(ts, null, members);
-        //    }
-        //    else {
-        //        QNameNode qName;
-        //        if (QName(out qName)) {
-        //            expr = new QualifiableNameExpressionNode(qName.TextSpan, ctx.Resolve(qName));
-        //        }
-        //    }
-        //    if (expr != null) {
-        //        while (true) {
-        //            if (Token('.')) {
-        //                var nameNode = NameExpected();
-        //                var name = nameNode.Value;
-        //                expr = new MemberAccessExpressionNode(nameNode.TextSpan, null, expr, name);
-        //            }
-        //            else if (Token('(', out ts)) {
-        //                var argList = new List<ExpressionNode>();
-        //                ExpressionNode arg;
-        //                if (Expression(ctx, out arg)) {
-        //                    argList.Add(arg);
-        //                    while (Token(',')) {
-        //                        argList.Add(ExpressionExpected(ctx));
-        //                    }
-        //                }
-        //                TokenExpected(')');
-        //                expr = new CallOrIndexExpressionNode(ts, null, true, expr, argList);
-        //            }
-        //            else if (Token('[', out ts)) {
-        //                var argList = new List<ExpressionNode>();
-        //                argList.Add(ExpressionExpected(ctx));
-        //                while (Token(',')) {
-        //                    argList.Add(ExpressionExpected(ctx));
-        //                }
-        //                TokenExpected(']');
-        //                expr = new CallOrIndexExpressionNode(ts, null, false, expr, argList);
-        //            }
-        //            else {
-        //                break;
-        //            }
-        //        }
-        //    }
-        //    result = expr;
-        //    return expr != null;
-        //}
-
-
     }
-    //internal sealed class Parser : ParserBase {
-    //    internal static bool ParseData(string filePath, TextReader reader, DiagContext diagCtx, ClassTypeMd classMd, out object result) {
-    //        if (classMd == null) throw new ArgumentNullException("classMd");
-    //        return Instance.Data(filePath, reader, diagCtx, classMd, out result);
-    //    }
-    //    internal static bool ParseExpressionArguments(string filePath, TextReader reader, DiagContext diagCtx, out List<NamedExpressionValue> result) {
-    //        return Instance.ExpressionArguments(filePath, reader, diagCtx, out result);
-    //    }
-    //    internal static bool ParseExpression(string filePath, TextReader reader, DiagContext diagCtx, ExpressionContext exprCtx, out ExpressionNode result) {
-    //        return Instance.Expression(filePath, reader, diagCtx, exprCtx, out result);
-    //    }
-    //    [ThreadStatic]
-    //    private static Parser _instance;
-    //    private static Parser Instance {
-    //        get { return _instance ?? (_instance = new Parser()); }
-    //    }
-    //    private Stack<List<UriAliasNode>> _uriAliasListStack;
-    //    private Parser() { }
-    //    private bool Data(string filePath, TextReader reader, DiagContext diagCtx, ClassTypeMd clsMd, out object result) {
-    //        try {
-    //            Set(filePath, reader, diagCtx);
-    //            if (_uriAliasListStack == null) {
-    //                _uriAliasListStack = new Stack<List<UriAliasNode>>();
-    //            }
-    //            else {
-    //                _uriAliasListStack.Clear();
-    //            }
-    //            object obj;
-    //            if (ClassValue(clsMd, out obj)) {
-    //                EndOfFileExpected();
-    //                result = obj;
-    //                return true;
-    //            }
-    //            else {
-    //                ErrorAndThrow("Class value expected.");
-    //            }
-    //        }
-    //        catch (DiagContext.DiagException) { }
-    //        finally {
-    //            Clear();
-    //        }
-    //        result = null;
-    //        return false;
-    //    }
-    //    private bool ExpressionArguments(string filePath, TextReader reader, DiagContext diagCtx, out List<NamedExpressionValue> result) {
-    //        try {
-    //            Set(filePath, reader, diagCtx);
-    //            var list = ExpressionArguments();
-    //            EndOfFileExpected();
-    //            result = list;
-    //            return true;
-    //        }
-    //        catch (DiagContext.DiagException) { }
-    //        finally {
-    //            Clear();
-    //        }
-    //        result = null;
-    //        return false;
-    //    }
-    //    private bool Expression(string filePath, TextReader reader, DiagContext diagCtx, ExpressionContext exprCtx, out ExpressionNode result) {
-    //        try {
-    //            Set(filePath, reader, diagCtx);
-    //            var expr = Expression(exprCtx);
-    //            EndOfFileExpected();
-    //            result = expr;
-    //            return true;
-    //        }
-    //        catch (DiagContext.DiagException) { }
-    //        finally {
-    //            Clear();
-    //        }
-    //        result = null;
-    //        return false;
-    //    }
-
-    //    private bool UriAliasList() {
-    //        if (Token('<')) {
-    //            List<UriAliasNode> list = null;
-    //            while (true) {
-    //                NameNode aliasNode;
-    //                if (Name(out aliasNode)) {
-    //                    var alias = aliasNode.Value;
-    //                    if (list == null) {
-    //                        list = new List<UriAliasNode>();
-    //                    }
-    //                    else {
-    //                        foreach (var item in list) {
-    //                            if (item.Alias == alias) {
-    //                                ErrorAndThrow(new DiagMsg(DiagCode.DuplicateAlias, alias), aliasNode.TextSpan);
-    //                            }
-    //                        }
-    //                    }
-    //                    TokenExpected('=');
-    //                    list.Add(new UriAliasNode(StringValueExpected().Text, alias));
-    //                }
-    //                else {
-    //                    TokenExpected('>');
-    //                    if (list != null) {
-    //                        _uriAliasListStack.Push(list);
-    //                        return true;
-    //                    }
-    //                    return false;
-    //                }
-    //            }
-    //        }
-    //        return false;
-    //    }
-    //    private string GetUri(NameNode aliasNode) {
-    //        var alias = aliasNode.Value;
-    //        foreach (var uaList in _uriAliasListStack) {
-    //            foreach (var ua in uaList) {
-    //                if (ua.Alias == alias) {
-    //                    return ua.Uri;
-    //                }
-    //            }
-    //        }
-    //        ErrorAndThrow(new DiagMsg(DiagCode.InvalidUriReference, alias), aliasNode.TextSpan);
-    //        return null;
-    //    }
-    //    private bool ClassValue(ClassTypeMd declaredClsMd, out object result) {
-    //        NameNode aliasNode;
-    //        if (Name(out aliasNode)) {
-    //            TokenExpected(':');
-    //            var nameNode = NameExpected();
-    //            var hasUriAliasingList = UriAliasList();
-    //            TokenExpected('{');
-    //            var fullName = new FullName(GetUri(aliasNode), nameNode.Value);
-    //            var clsMd = ProgramMd.GetGlobalType<ClassTypeMd>(fullName);
-    //            if (clsMd == null) {
-    //                ErrorAndThrow(new DiagMsg(DiagCode.InvalidClassReference, fullName.ToString()), nameNode.TextSpan);
-    //            }
-    //            if (!clsMd.IsEqualToOrDeriveFrom(declaredClsMd)) {
-    //                ErrorAndThrow(new DiagMsg(DiagCode.ClassNotEqualToOrDeriveFromTheDeclared, fullName.ToString(), declaredClsMd.FullName.ToString()),
-    //                    nameNode.TextSpan);
-    //            }
-    //            if (clsMd.IsAbstract) {
-    //                ErrorAndThrow(new DiagMsg(DiagCode.ClassIsAbstract, fullName.ToString()), nameNode.TextSpan);
-    //            }
-    //            var obj = clsMd.CreateInstance();
-    //            clsMd.SetTextSpan(obj, nameNode.TextSpan);
-    //            if (!clsMd.InvokeOnLoad(true, obj, _diagCtx)) {
-    //                Throw();
-    //            }
-    //            List<ClassTypePropertyMd> propMdList = null;
-    //            clsMd.GetPropertiesInHierarchy(ref propMdList);
-    //            while (true) {
-    //                NameNode propNameNode;
-    //                if (Name(out propNameNode)) {
-    //                    var propName = propNameNode.Value;
-    //                    ClassTypePropertyMd propMd = null;
-    //                    if (propMdList != null) {
-    //                        for (var i = 0; i < propMdList.Count; ++i) {
-    //                            if (propMdList[i].Name == propName) {
-    //                                propMd = propMdList[i];
-    //                                propMdList.RemoveAt(i);
-    //                                break;
-    //                            }
-    //                        }
-    //                    }
-    //                    if (propMd == null) {
-    //                        ErrorAndThrow(new DiagMsg(DiagCode.InvalidPropertyName, propName), propNameNode.TextSpan);
-    //                    }
-    //                    TokenExpected('=');
-    //                    propMd.SetValue(obj, LocalValueExpected(propMd.Type));
-    //                }
-    //                else {
-    //                    TextSpan ts;
-    //                    TokenExpected('}', out ts);
-    //                    if (propMdList != null && propMdList.Count > 0) {
-    //                        foreach (var propMd in propMdList) {
-    //                            Error(new DiagMsg(DiagCode.PropertyMissing, propMd.Name), ts);
-    //                        }
-    //                        Throw();
-    //                    }
-    //                    if (!clsMd.InvokeOnLoad(false, obj, _diagCtx)) {
-    //                        Throw();
-    //                    }
-    //                    if (hasUriAliasingList) {
-    //                        _uriAliasListStack.Pop();
-    //                    }
-    //                    result = obj;
-    //                    return true;
-    //                }
-    //            }
-    //        }
-    //        result = null;
-    //        return false;
-    //    }
-    //    private object LocalValueExpected(LocalTypeMd typeMd) {
-    //        object value;
-    //        if (LocalValue(typeMd, out value)) {
-    //            return value;
-    //        }
-    //        ErrorAndThrow(new DiagMsg(DiagCode.ValueExpected));
-    //        return null;
-    //    }
-    //    private bool LocalValue(LocalTypeMd typeMd, out object result) {
-    //        var typeKind = typeMd.Kind;
-    //        AtomValueNode avNode;
-    //        if (AtomValue(out avNode, true)) {
-    //            if (avNode.IsNull) {
-    //                if (false) {//!typeMd.IsNullable) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.NullNotAllowed), avNode.TextSpan);
-    //                }
-    //                result = null;
-    //                return true;
-    //            }
-    //            if (!typeKind.IsAtom()) {
-    //                ErrorAndThrow(new DiagMsg(DiagCode.SpecificValueExpected, typeKind.ToString()), avNode.TextSpan);
-    //            }
-    //            result = AtomExtensions.TryParse(typeKind, avNode.Text);
-    //            if (result == null) {
-    //                ErrorAndThrow(new DiagMsg(DiagCode.InvalidAtomValue, typeKind.ToString(), avNode.Text), avNode.TextSpan);
-    //            }
-    //            return true;
-    //        }
-    //        else {
-    //            TextSpan ts;
-    //            if (Token('$', out ts)) {
-    //                if (typeKind != TypeKind.Enum) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.SpecificValueExpected, typeKind.ToString()), ts);
-    //                }
-    //                var uri = GetUri(NameExpected());
-    //                TokenExpected(':');
-    //                var nameNode = NameExpected();
-    //                var fullName = new FullName(uri, nameNode.Value);
-    //                var enumMd = ProgramMd.GetGlobalType<EnumTypeMd>(fullName);
-    //                if (enumMd == null) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.InvalidEnumReference, fullName.ToString()), nameNode.TextSpan);
-    //                }
-    //                var declaredEnumMd = ((GlobalTypeRefMd)typeMd).GlobalType as EnumTypeMd;
-    //                if (enumMd != declaredEnumMd) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.EnumNotEqualToTheDeclared, fullName.ToString(), declaredEnumMd.FullName.ToString()),
-    //                        nameNode.TextSpan);
-    //                }
-    //                TokenExpected('.');
-    //                var memberNameNode = NameExpected();
-    //                result = enumMd.GetPropertyValue(memberNameNode.Value);
-    //                if (result == null) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.InvalidEnumMemberName, memberNameNode.Value), memberNameNode.TextSpan);
-    //                }
-    //                return true;
-    //            }
-    //            else if (Token('[', out ts)) {
-    //                var isList = typeKind == TypeKind.List;
-    //                var isSet = typeKind == TypeKind.SimpleSet || typeKind == TypeKind.ObjectSet;
-    //                if (!(isList || isSet)) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.SpecificValueExpected, typeKind.ToString()), ts);
-    //                }
-    //                var collMd = (CollectionTypeMd)typeMd;
-    //                var collObj = collMd.CreateInstance();
-    //                var itemMd = collMd.ItemType;
-    //                while (true) {
-    //                    object itemObj;
-    //                    if (isSet) {
-    //                        ts = GetTextSpan();
-    //                    }
-    //                    if (LocalValue(itemMd, out itemObj)) {
-    //                        if (isSet) {
-    //                            if (!collMd.InvokeBoolAdd(collObj, itemObj)) {
-    //                                ErrorAndThrow(new DiagMsg(DiagCode.DuplicateSetItem), ts);
-    //                            }
-    //                        }
-    //                        else {
-    //                            collMd.InvokeAdd(collObj, itemObj);
-    //                        }
-    //                    }
-    //                    else {
-    //                        TokenExpected(']');
-    //                        result = collObj;
-    //                        return true;
-    //                    }
-    //                }
-    //            }
-    //            else if (Token((int)TokenKind.HashOpenBracket, out ts)) {
-    //                if (typeKind != TypeKind.Map) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.SpecificValueExpected, typeKind.ToString()), ts);
-    //                }
-    //                var collMd = (CollectionTypeMd)typeMd;
-    //                var collObj = collMd.CreateInstance();
-    //                var keyMd = collMd.MapKeyType;
-    //                var valueMd = collMd.ItemType;
-    //                while (true) {
-    //                    object keyObj;
-    //                    ts = GetTextSpan();
-    //                    if (LocalValue(keyMd, out keyObj)) {
-    //                        if (collMd.InvokeContainsKey(collObj, keyObj)) {
-    //                            ErrorAndThrow(new DiagMsg(DiagCode.DuplicateMapKey), ts);
-    //                        }
-    //                        TokenExpected('=');
-    //                        collMd.InvokeAdd(collObj, keyObj, LocalValueExpected(valueMd));
-    //                    }
-    //                    else {
-    //                        TokenExpected(']');
-    //                        result = collObj;
-    //                        return true;
-    //                    }
-    //                }
-    //            }
-    //            else if (PeekToken((int)TokenKind.Name, (int)TokenKind.VerbatimName)) {
-    //                if (typeKind != TypeKind.Class) {
-    //                    ErrorAndThrow(new DiagMsg(DiagCode.SpecificValueExpected, typeKind.ToString()));
-    //                }
-    //                return ClassValue(((GlobalTypeRefMd)typeMd).GlobalType as ClassTypeMd, out result);
-    //            }
-    //        }
-    //        result = null;
-    //        return false;
-    //    }
-
-
-    //}
 
 }

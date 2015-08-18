@@ -1,4 +1,5 @@
 ﻿using Microsoft.CodeAnalysis;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace CSharpParser
@@ -13,6 +14,7 @@ namespace CSharpParser
         //{
         //    return StringBuilderBuffer.Acquire().AppendFormat(CultureInfo.InvariantCulture, format, args).ToStringAndRelease();
         //}
+        public const int ParsingErrorCode = 1;
 
         public static string ToInvString(this int value)
         {
@@ -28,6 +30,8 @@ namespace CSharpParser
             return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName,
                 "_" + index1.ToInvString() + "_" + index2.ToInvString()));
         }
+
+
 
         //
         //public static int AggregateHash(int hash, int newValue)
@@ -59,12 +63,14 @@ namespace CSharpParser
         //    }
         //}
         //
-        //internal static void CreateAndAdd<T>(ref List<T> list, T item) {
-        //    if (list == null) {
-        //        list = new List<T>();
-        //    }
-        //    list.Add(item);
-        //}
+        internal static void CreateAndAdd<T>(ref List<T> list, T item)
+        {
+            if (list == null)
+            {
+                list = new List<T>();
+            }
+            list.Add(item);
+        }
         //internal static int CountOrZero<T>(this List<T> list) {
         //    return list == null ? 0 : list.Count;
         //}

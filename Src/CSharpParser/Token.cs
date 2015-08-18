@@ -1,16 +1,16 @@
-﻿
-using System;
+﻿using System;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace CSharpParser
 {
     public enum TokenKind
     {
-        SingleLineComment = -1000,//internal use
+        SingleLineComment = -300,//internal use
+        ReservedKeyword,//class, int, true, etc
         NormalIdentifier,
         VerbatimIdentifier,// @id
-        NormalString,
-        VerbatimString,// @"..."
-        Char,// 'c'
+        String,
+        Char,
         Number,
         //
         BarBar,// ||
@@ -38,21 +38,23 @@ namespace CSharpParser
         QuestionQuestion,// ??
         ColonColon,// ::
         //
-        //HashHash,// ##
+        //DollarDollar,// $$
 
     }
     public struct Token : IEquatable<Token>
     {
-        public Token(int kind, string value, TextSpan textSpan)
+        public Token(int kind, string value, TextSpan textSpan, SyntaxKind syntaxKind = SyntaxKind.None)
         {
             Kind = kind;
             Value = value;
             TextSpan = textSpan;
+            SyntaxKind = syntaxKind;
             Index = -1;
         }
         public readonly int Kind;
-        public readonly string Value;//for TokenKind.NormalIdentifier to TokenKind.Number
+        public readonly string Value;//for TokenKind.ReservedKeyword to TokenKind.Number
         public readonly TextSpan TextSpan;
+        public readonly SyntaxKind SyntaxKind;//for TokenKind.ReservedKeyword
         public int Index;
         public TokenKind TokenKind
         {
@@ -75,7 +77,13 @@ namespace CSharpParser
                 return Kind == char.MaxValue;
             }
         }
-
+        public bool IsReservedKeyword
+        {
+            get
+            {
+                return TokenKind == TokenKind.ReservedKeyword;
+            }
+        }
         public bool IsNormalIdentifier
         {
             get
@@ -94,7 +102,7 @@ namespace CSharpParser
         {
             get
             {
-                return IsNormalIdentifier|| IsVerbatimIdentifier;
+                return IsNormalIdentifier || IsVerbatimIdentifier;
             }
         }
         public bool IsKeyword(string value)
