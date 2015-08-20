@@ -20,15 +20,15 @@ namespace CSharpParser
         {
             return value.ToString(CultureInfo.InvariantCulture);
         }
-        private const string _syntaxAnnotationKindName = "CSharpParserToken";
-        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int index)
+        private const string _syntaxAnnotationKindName = "CSPTokenIndex";
+        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int tokenIndex)
         {
-            return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName, index.ToInvString()));
+            return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName, tokenIndex.ToInvString()));
         }
-        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int index1, int index2)
+        public static SyntaxToken Attach(this SyntaxToken syntaxToken, int tokenIndex1, int tokenIndex2)
         {
             return syntaxToken.WithAdditionalAnnotations(new SyntaxAnnotation(_syntaxAnnotationKindName,
-                "_" + index1.ToInvString() + "_" + index2.ToInvString()));
+                "_" + tokenIndex1.ToInvString() + "_" + tokenIndex2.ToInvString()));
         }
 
 

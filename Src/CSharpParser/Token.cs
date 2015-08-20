@@ -105,7 +105,7 @@ namespace CSharpParser
                 return IsNormalIdentifier || IsVerbatimIdentifier;
             }
         }
-        public bool IsKeyword(string value)
+        public bool IsContextualKeyword(string value)
         {
             return IsNormalIdentifier && Value == value;
         }
