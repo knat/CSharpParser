@@ -6,7 +6,7 @@ namespace CSharpParser
     public enum TokenKind
     {
         SingleLineComment = -300,//internal use
-        ReservedKeyword,//class, int, true, etc
+        ReservedKeyword,//class, int, true, new, etc
         NormalIdentifier,
         VerbatimIdentifier,// @id
         String,
@@ -103,6 +103,13 @@ namespace CSharpParser
             get
             {
                 return IsNormalIdentifier || IsVerbatimIdentifier;
+            }
+        }
+        public bool IsPredefinedType
+        {
+            get
+            {
+                return SyntaxFacts.IsPredefinedType(SyntaxKind);
             }
         }
         public bool IsContextualKeyword(string value)

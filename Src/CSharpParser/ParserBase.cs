@@ -11,19 +11,6 @@ namespace CSharpParser
     public delegate bool IntArgCreator<T>(int arg, out T item);//where T : SyntaxNode;
     public abstract class ParserBase
     {
-        protected ParserBase()
-        {
-            _ExternAliasDirectiveCreator = ExternAliasDirective;
-            _StatementCreator = Statement;
-            _SwitchSectionCreator = SwitchSection;
-            _SwitchLabelCreator = SwitchLabel;
-
-            _ExpressionCreator = Expression;
-            _TypeCreator = Type;
-            _ArrayRankSpecifierCreator = ArrayRankSpecifier;
-            _QueryClauseCreator = QueryClause;
-            _OrderingCreator = Ordering;
-        }
         protected virtual void Init(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols)
         {
             _lexer = Lexer.Get(filePath, reader, context, ppSymbols);
@@ -45,15 +32,36 @@ namespace CSharpParser
         protected ParsingContext _context;
         protected int _tokenIndex;
         //
+        protected ParserBase()
+        {
+            _ExternAliasDirectiveCreator = ExternAliasDirective;
+            _StatementCreator = Statement;
+            _SwitchSectionCreator = SwitchSection;
+            _SwitchLabelCreator = SwitchLabel;
+            _CatchClauseCreator = CatchClause;
+            _ConstVariableDeclaratorCreator = ConstVariableDeclarator;
+            _VariableDeclaratorCreator = VariableDeclarator;
+
+            _ExpressionCreator = Expression;
+            _ArrayInitializerExpressionCreator = ArrayInitializerExpression;
+            _TypeCreator = Type;
+            _ArrayRankSpecifierCreator = ArrayRankSpecifier;
+            _QueryClauseCreator = QueryClause;
+            _OrderingCreator = Ordering;
+        }
 
         protected readonly Creator<ExternAliasDirectiveSyntax> _ExternAliasDirectiveCreator;
 
         protected readonly Creator<StatementSyntax> _StatementCreator;
-
         protected readonly Creator<SwitchSectionSyntax> _SwitchSectionCreator;
         protected readonly Creator<SwitchLabelSyntax> _SwitchLabelCreator;
+        protected readonly Creator<CatchClauseSyntax> _CatchClauseCreator;
+        protected readonly Creator<VariableDeclaratorSyntax> _ConstVariableDeclaratorCreator;
+        protected readonly Creator<VariableDeclaratorSyntax> _VariableDeclaratorCreator;
 
         protected readonly Creator<ExpressionSyntax> _ExpressionCreator;
+        protected readonly Creator<ExpressionSyntax> _ArrayInitializerExpressionCreator;
+
         protected readonly Creator<TypeSyntax> _TypeCreator;
         protected readonly IntArgCreator<ArrayRankSpecifierSyntax> _ArrayRankSpecifierCreator;
 
@@ -502,6 +510,23 @@ namespace CSharpParser
         }
 
         #endregion list
+
+        #region
+        protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result)
+        {
+            SyntaxToken externKeyword;
+            if (ReservedKeyword(SyntaxKind.ExternKeyword, out externKeyword))
+            {
+                result = SyntaxFactory.ExternAliasDirective(externKeyword, ContextualKeywordExpected("alias"),
+                    IdentifierExpected(), TokenExpected(';'));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+
+        #endregion
+
         #region statements
 
 
@@ -548,44 +573,361 @@ namespace CSharpParser
                                 return true;
                             }
                         case SyntaxKind.SwitchKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.SwitchStatement(Token(SyntaxKind.SwitchKeyword, token.Index), TokenExpected('('), ExpressionExpected(), TokenExpected(')'),
+                                TokenExpected('{'), List(_SwitchSectionCreator), TokenExpected('}'));
+                            return true;
+                        case SyntaxKind.WhileKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.WhileStatement(Token(SyntaxKind.WhileKeyword, token.Index), TokenExpected('('), ExpressionExpected(),
+                                TokenExpected(')'), StatementExpected(true));
+                            return true;
+                        case SyntaxKind.DoKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.DoStatement(Token(SyntaxKind.DoKeyword, token.Index), StatementExpected(true),
+                                ReservedKeywordExpected(SyntaxKind.WhileKeyword), TokenExpected('('), ExpressionExpected(), TokenExpected(')'),
+                                TokenExpected(';'));
+                            return true;
+                        case SyntaxKind.ForEachKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.ForEachStatement(Token(SyntaxKind.ForEachKeyword, token.Index), TokenExpected('('), TypeExpected(),
+                                IdentifierExpected(), ReservedKeywordExpected(SyntaxKind.InKeyword), ExpressionExpected(), TokenExpected(')'), StatementExpected(true));
+                            return true;
+                        case SyntaxKind.ForKeyword:
                             {
                                 ++_tokenIndex;
-                                result = SyntaxFactory.SwitchStatement(Token(SyntaxKind.SwitchKeyword, token.Index), TokenExpected('('), ExpressionExpected(), TokenExpected(')'),
-                                    TokenExpected('{'), List(_SwitchSectionCreator), TokenExpected('}'));
+                                var openParen = TokenExpected('(');
+                                SeparatedSyntaxList<ExpressionSyntax> initializers = default(SeparatedSyntaxList<ExpressionSyntax>);
+                                var declaration = VariableDeclarationOrLabeledStatement() as VariableDeclarationSyntax;
+                                if (declaration == null)
+                                {
+                                    initializers = SeparatedList(_ExpressionCreator);
+                                }
+                                var firstSemicolon = TokenExpected(';');
+                                ExpressionSyntax condition;
+                                Expression(out condition);
+                                result = SyntaxFactory.ForStatement(Token(SyntaxKind.ForKeyword, token.Index), openParen, declaration, initializers,
+                                    firstSemicolon, condition, TokenExpected(';'), SeparatedList(_ExpressionCreator), TokenExpected(')'), StatementExpected(true));
                                 return true;
                             }
-                        case SyntaxKind.WhileKeyword:
+                        case SyntaxKind.BreakKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.BreakStatement(Token(SyntaxKind.BreakKeyword, token.Index), TokenExpected(';'));
+                            return true;
+                        case SyntaxKind.ContinueKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.ContinueStatement(Token(SyntaxKind.ContinueKeyword, token.Index), TokenExpected(';'));
+                            return true;
+                        case SyntaxKind.GotoKeyword:
                             {
                                 ++_tokenIndex;
-                                result = SyntaxFactory.WhileStatement(Token(SyntaxKind.WhileKeyword, token.Index), TokenExpected('('), ExpressionExpected(),
+                                SyntaxKind kind;
+                                SyntaxToken caseOrDefaultKeyword;
+                                ExpressionSyntax expr;
+                                IdentifierNameSyntax ins;
+                                if (IdentifierName(out ins))
+                                {
+                                    expr = ins;
+                                    kind = SyntaxKind.GotoStatement;
+                                    caseOrDefaultKeyword = default(SyntaxToken);
+                                }
+                                else
+                                {
+                                    var token2 = GetToken();
+                                    switch (token2.SyntaxKind)
+                                    {
+                                        case SyntaxKind.CaseKeyword:
+                                            ++_tokenIndex;
+                                            expr = ExpressionExpected();
+                                            kind = SyntaxKind.GotoCaseStatement;
+                                            caseOrDefaultKeyword = Token(SyntaxKind.CaseKeyword, token2.Index);
+                                            break;
+                                        case SyntaxKind.DefaultKeyword:
+                                            ++_tokenIndex;
+                                            kind = SyntaxKind.GotoDefaultStatement;
+                                            caseOrDefaultKeyword = Token(SyntaxKind.DefaultKeyword, token2.Index);
+                                            expr = null;
+                                            break;
+                                        default:
+                                            IdentifierExpectedErrorAndThrow();
+                                            throw new Exception();
+                                    }
+                                }
+                                result = SyntaxFactory.GotoStatement(kind, Token(SyntaxKind.GotoKeyword, token.Index), caseOrDefaultKeyword, expr, TokenExpected(';'));
+                                return true;
+                            }
+                        case SyntaxKind.ReturnKeyword:
+                            {
+                                ++_tokenIndex;
+                                SyntaxToken semicolon;
+                                ExpressionSyntax expr = null;
+                                if (!Token(';', out semicolon))
+                                {
+                                    expr = ExpressionExpected();
+                                    semicolon = TokenExpected(';');
+                                }
+                                result = SyntaxFactory.ReturnStatement(Token(SyntaxKind.ReturnKeyword, token.Index), expr, semicolon);
+                                return true;
+                            }
+                        case SyntaxKind.ThrowKeyword:
+                            {
+                                ++_tokenIndex;
+                                SyntaxToken semicolon;
+                                ExpressionSyntax expr = null;
+                                if (!Token(';', out semicolon))
+                                {
+                                    expr = ExpressionExpected();
+                                    semicolon = TokenExpected(';');
+                                }
+                                result = SyntaxFactory.ThrowStatement(Token(SyntaxKind.ThrowKeyword, token.Index), expr, semicolon);
+                                return true;
+                            }
+                        case SyntaxKind.TryKeyword:
+                            {
+                                ++_tokenIndex;
+                                var block = BlockExpected();
+                                var catches = List(_CatchClauseCreator);
+                                BlockSyntax finallyBlock = null;
+                                var token2 = GetToken();
+                                if (token2.SyntaxKind == SyntaxKind.FinallyKeyword)
+                                {
+                                    ++_tokenIndex;
+                                    finallyBlock = BlockExpected();
+                                }
+                                result = SyntaxFactory.TryStatement(Token(SyntaxKind.TryKeyword, token.Index), block, catches,
+                                    finallyBlock == null ? null : SyntaxFactory.FinallyClause(Token(SyntaxKind.FinallyKeyword, token2.Index), finallyBlock));
+                                return true;
+                            }
+                        case SyntaxKind.CheckedKeyword:
+                        case SyntaxKind.UncheckedKeyword:
+                            if (PeekToken(1, '{'))
+                            {
+                                ++_tokenIndex;
+                                var isChecked = token.SyntaxKind == SyntaxKind.CheckedKeyword;
+                                result = SyntaxFactory.CheckedStatement(isChecked ? SyntaxKind.CheckedStatement : SyntaxKind.UncheckedStatement,
+                                    Token(isChecked ? SyntaxKind.CheckedKeyword : SyntaxKind.UncheckedKeyword, token.Index), BlockExpected());
+                                return true;
+                            }
+                            break;
+                        case SyntaxKind.LockKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.LockStatement(Token(SyntaxKind.LockKeyword, token.Index), TokenExpected('('), ExpressionExpected(), TokenExpected(')'),
+                                StatementExpected(true));
+                            return true;
+                        case SyntaxKind.UsingKeyword:
+                            {
+                                ++_tokenIndex;
+                                var openParen = TokenExpected('(');
+                                ExpressionSyntax expr = null;
+                                var declaration = VariableDeclarationOrLabeledStatement() as VariableDeclarationSyntax;
+                                if (declaration == null)
+                                {
+                                    expr = ExpressionExpected();
+                                }
+                                result = SyntaxFactory.UsingStatement(Token(SyntaxKind.UsingKeyword, token.Index), openParen, declaration, expr,
                                     TokenExpected(')'), StatementExpected(true));
                                 return true;
                             }
-                        case SyntaxKind.DoKeyword:
+                        case SyntaxKind.ConstKeyword:
+                            if (embeddedOnly)
+                            {
+                                result = null;
+                                return false;
+                            }
+                            else
                             {
                                 ++_tokenIndex;
-                                result = SyntaxFactory.DoStatement(Token(SyntaxKind.DoKeyword, token.Index), StatementExpected(true),
-                                    ReservedKeywordExpected(SyntaxKind.WhileKeyword), TokenExpected('('), ExpressionExpected(), TokenExpected(')'),
+                                result = SyntaxFactory.LocalDeclarationStatement(SyntaxFactory.TokenList(Token(SyntaxKind.ConstKeyword, token.Index)),
+                                    SyntaxFactory.VariableDeclaration(TypeExpected(), SeparatedList(_ConstVariableDeclaratorCreator, null, false, "Variable declarator expected.")),
                                     TokenExpected(';'));
                                 return true;
                             }
-                        case SyntaxKind.ForEachKeyword:
-                            {
-                                ++_tokenIndex;
-                                result = SyntaxFactory.ForEachStatement(Token(SyntaxKind.ForEachKeyword, token.Index), TokenExpected('('), TypeExpected(),
-                                    IdentifierExpected(), ReservedKeywordExpected(SyntaxKind.InKeyword), ExpressionExpected(), TokenExpected(')'), StatementExpected(true));
-                                return true;
-                            }
-
-
-
                     }
                     break;
+                case (int)TokenKind.NormalIdentifier:
+                    switch (token.Value)
+                    {
+                        case "yield":
+                            {
+                                var token2 = GetToken(1);
+                                switch (token2.SyntaxKind)
+                                {
+                                    case SyntaxKind.BreakKeyword:
+                                        _tokenIndex += 2;
+                                        result = SyntaxFactory.YieldStatement(SyntaxKind.YieldBreakStatement, Token(SyntaxKind.YieldKeyword, token.Index),
+                                            Token(SyntaxKind.BreakKeyword, token.Index), null, TokenExpected(';'));
+                                        return true;
+                                    case SyntaxKind.ReturnKeyword:
+                                        _tokenIndex += 2;
+                                        result = SyntaxFactory.YieldStatement(SyntaxKind.YieldReturnStatement, Token(SyntaxKind.YieldKeyword, token.Index),
+                                            Token(SyntaxKind.ReturnKeyword, token.Index), ExpressionExpected(), TokenExpected(';'));
+                                        return true;
+                                }
+                            }
+                            break;
+                    }
+                    break;
+                case ';':
+                    ++_tokenIndex;
+                    result = SyntaxFactory.EmptyStatement(Token(SyntaxKind.SemicolonToken, token.Index));
+                    return true;
+                case '{':
+                    ++_tokenIndex;
+                    result = SyntaxFactory.Block(Token(SyntaxKind.OpenBraceToken, token.Index), List(_StatementCreator), TokenExpected('}'));
+                    return true;
 
+            }
+            if (!embeddedOnly)
+            {
+                var sn = VariableDeclarationOrLabeledStatement(true);
+                if (sn != null)
+                {
+                    var variableDeclaration = sn as VariableDeclarationSyntax;
+                    if (variableDeclaration != null)
+                    {
+                        result = SyntaxFactory.LocalDeclarationStatement(default(SyntaxTokenList), variableDeclaration, TokenExpected(';'));
+                    }
+                    else
+                    {
+                        result = (StatementSyntax)sn;
+                    }
+                    return true;
+                }
+            }
+            ExpressionSyntax stmExpr;
+            if (Expression(out stmExpr))
+            {
+                result = SyntaxFactory.ExpressionStatement(stmExpr, TokenExpected(';'));
+                return true;
             }
             result = null;
             return false;
         }
+        protected BlockSyntax BlockExpected()
+        {
+            BlockSyntax result;
+            if (!Block(out result))
+            {
+                ErrorAndThrow("Block statement expected.");
+            }
+            return result;
+        }
+        protected bool Block(out BlockSyntax result)
+        {
+            SyntaxToken st;
+            if (Token('{', out st))
+            {
+                result = SyntaxFactory.Block(st, List(_StatementCreator), TokenExpected('}'));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private SyntaxNode VariableDeclarationOrLabeledStatement(bool allowLabeledStm = false)
+        {
+            var token = GetToken();
+            var isId = token.IsIdentifier;
+            if (isId || token.IsPredefinedType)
+            {
+                TypeSyntax type = null;
+                var token2 = GetToken(1);
+                switch (token2.Kind)
+                {
+                    case ':':
+                        if (allowLabeledStm && isId)
+                        {
+                            _tokenIndex += 2;
+                            return SyntaxFactory.LabeledStatement(Identifier(token), Token(SyntaxKind.ColonToken, token2.Index), StatementExpected());
+                        }
+                        return null;
+                    case (int)TokenKind.NormalIdentifier:
+                    case (int)TokenKind.VerbatimIdentifier:
+                        Type(out type);
+                        break;
+                    case '.':
+                    case '<':
+                    case (int)TokenKind.ColonColon:
+                    case '?':
+                    case '[':
+                        {
+                            var tkIdx = _tokenIndex;
+                            Type(out type);
+                            if (!PeekToken(0, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier))
+                            {
+                                type = null;
+                                _tokenIndex = tkIdx;
+                            }
+                        }
+                        break;
+                }
+                if (type != null)
+                {
+                    return SyntaxFactory.VariableDeclaration(type, SeparatedList(_VariableDeclaratorCreator, null, false, "Variable declarator expected."));
+                }
+            }
+            return null;
+        }
+        private bool ConstVariableDeclarator(out VariableDeclaratorSyntax result)
+        {
+            SyntaxToken id;
+            if (Identifier(out id))
+            {
+                result = SyntaxFactory.VariableDeclarator(id, null, SyntaxFactory.EqualsValueClause(TokenExpected('='), ExpressionExpected()));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private bool VariableDeclarator(out VariableDeclaratorSyntax result)
+        {
+            SyntaxToken id;
+            if (Identifier(out id))
+            {
+                var equals = TokenExpected('=');
+                ExpressionSyntax expr;
+                if (PeekToken(0, '{'))
+                {
+                    expr = ArrayInitializer();
+                }
+                else
+                {
+                    expr = ExpressionExpected();
+                }
+                result = SyntaxFactory.VariableDeclarator(id, null, SyntaxFactory.EqualsValueClause(equals, expr));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private LabeledStatementSyntax LabeledStatement(Token id)
+        {
+            var token2 = GetToken(1);
+            if (token2.Kind == ':')
+            {
+                _tokenIndex += 2;
+                return SyntaxFactory.LabeledStatement(Identifier(id), Token(SyntaxKind.ColonToken, token2.Index), StatementExpected());
+            }
+            return null;
+        }
+        private bool CatchClause(out CatchClauseSyntax result)
+        {
+            var token = GetToken();
+            if (token.SyntaxKind == SyntaxKind.CatchKeyword)
+            {
+                ++_tokenIndex;
+                var openParen = TokenExpected('(');
+                var type = TypeExpected();
+                SyntaxToken id;
+                Identifier(out id);
+                result = SyntaxFactory.CatchClause(Token(SyntaxKind.CatchKeyword, token.Index),
+                    SyntaxFactory.CatchDeclaration(openParen, type, id, TokenExpected(')')), null,
+                    BlockExpected());
+                return true;
+            }
+            result = null;
+            return false;
+        }
+
         private bool SwitchSection(out SwitchSectionSyntax result)
         {
             var labels = List(_SwitchLabelCreator);
@@ -615,16 +957,6 @@ namespace CSharpParser
             return false;
         }
 
-        protected bool Block(out BlockSyntax result)
-        {
-            SyntaxToken st;
-            if (Token('{', out st))
-            {
-
-            }
-            result = null;
-            return false;
-        }
         #endregion statements
         #region expressions
         protected bool Expression(out ExpressionSyntax result)
@@ -1768,6 +2100,25 @@ namespace CSharpParser
         //{
         //    return SyntaxFactory.AnonymousMethodExpression(asyncKeyword, KeywordExpected("delegate"), null, null);
         //}
+        private InitializerExpressionSyntax ArrayInitializer()
+        {
+            SyntaxToken st;
+            if (Token('{', out st))
+            {
+                return SyntaxFactory.InitializerExpression(SyntaxKind.ArrayInitializerExpression, st,
+                    SeparatedList(_ArrayInitializerExpressionCreator, null, true), TokenExpected('}'));
+            }
+            return null;
+        }
+        private bool ArrayInitializerExpression(out ExpressionSyntax result)
+        {
+            if (PeekToken(0, '{'))
+            {
+                result = ArrayInitializer();
+                return true;
+            }
+            return Expression(out result);
+        }
         #endregion expressions
         #region types
         protected bool PredefinedType(out PredefinedTypeSyntax result)
@@ -2000,20 +2351,6 @@ namespace CSharpParser
         }
         #endregion types
 
-        protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result)
-        {
-            //SyntaxToken externKeyword;
-            //if (Keyword("extern", out externKeyword))
-            //{
-            //    var aliasKeyword = KeywordExpected("alias");
-            //    var identifier = IdentifierExpected();
-            //    var semicolonToken = TokenExpected(';');
-            //    result = SyntaxFactory.ExternAliasDirective(externKeyword, aliasKeyword, identifier, semicolonToken);
-            //    return true;
-            //}
-            result = null;
-            return false;
-        }
 
 
 
