@@ -16,7 +16,7 @@ namespace CSharpParser
         //}
         public const int ParsingErrorCode = 1;
 
-        private static string ToInvString(this int value)
+        internal static string ToInvString(this int value)
         {
             return value.ToString(CultureInfo.InvariantCulture);
         }

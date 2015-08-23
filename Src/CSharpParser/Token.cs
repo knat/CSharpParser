@@ -116,6 +116,10 @@ namespace CSharpParser
         {
             return IsNormalIdentifier && Value == value;
         }
+        //public bool IsContextualKeyword(string value1, string value2)
+        //{
+        //    return IsNormalIdentifier && (Value == value1 || Value == value2);
+        //}
 
         //
         public override string ToString()
