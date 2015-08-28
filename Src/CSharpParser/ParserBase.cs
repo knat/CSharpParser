@@ -4,11 +4,9 @@ using System.IO;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 namespace CSharpParser
 {
     public delegate bool Creator<T>(out T item);//where T : SyntaxNode;
-
     public abstract class ParserBase
     {
         protected virtual void Init(string filePath, TextReader reader, ParsingContext context, IEnumerable<string> ppSymbols)
@@ -40,6 +38,12 @@ namespace CSharpParser
             _AttributeListCreator = AttributeList;
             _AttributeCreator = Attribute;
             _AttributeArgumentCreator = AttributeArgument;
+            _NamespaceMemberCreator = NamespaceMember;
+
+            _ModifierCreator = Modifier;
+            _TypeParameterCreator = TypeParameter;
+            _BaseTypeCreator = BaseType;
+            _TypeParameterConstraintCreator = TypeParameterConstraint;
 
             //
             _StatementCreator = Statement;
@@ -65,6 +69,12 @@ namespace CSharpParser
         protected readonly Creator<AttributeListSyntax> _AttributeListCreator;
         protected readonly Creator<AttributeSyntax> _AttributeCreator;
         protected readonly Creator<AttributeArgumentSyntax> _AttributeArgumentCreator;
+        protected readonly Creator<MemberDeclarationSyntax> _NamespaceMemberCreator;
+
+        protected readonly Creator<SyntaxToken> _ModifierCreator;
+        protected readonly Creator<TypeParameterSyntax> _TypeParameterCreator;
+        private readonly Creator<BaseTypeSyntax> _BaseTypeCreator;
+        private readonly Creator<TypeParameterConstraintSyntax> _TypeParameterConstraintCreator;
 
 
         protected readonly Creator<StatementSyntax> _StatementCreator;
@@ -142,6 +152,10 @@ namespace CSharpParser
             var kind = GetToken(offset).Kind;
             return kind == kind1 || kind == kind2 || kind == kind3 || kind == kind4;
         }
+        protected bool PeekIdentifier(int offset)
+        {
+            return PeekToken(offset, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier);
+        }
 
         protected SyntaxToken Identifier(Token token)
         {
@@ -178,14 +192,33 @@ namespace CSharpParser
         {
             ErrorAndThrow("Identifier expected.");
         }
+        protected SyntaxToken IdentifierOrDefault()
+        {
+            SyntaxToken result;
+            Identifier(out result);
+            return result;
+        }
 
         protected bool ReservedKeyword(SyntaxKind kind, out SyntaxToken result)
         {
             var token = GetToken();
-            if (/*token.IsReservedKeyword &&*/ token.SyntaxKind == kind)
+            if (token.SyntaxKind == kind)
             {
                 ++_tokenIndex;
                 result = Token(kind, token.Index);
+                return true;
+            }
+            result = default(SyntaxToken);
+            return false;
+        }
+        protected bool ReservedKeyword(SyntaxKind kind1, SyntaxKind kind2, out SyntaxToken result)
+        {
+            var token = GetToken();
+            var skind = token.SyntaxKind;
+            if (skind == kind1 || skind == kind2)
+            {
+                ++_tokenIndex;
+                result = Token(skind, token.Index);
                 return true;
             }
             result = default(SyntaxToken);
@@ -200,6 +233,13 @@ namespace CSharpParser
             }
             return result;
         }
+        protected SyntaxToken ReservedKeywordOrDefault(SyntaxKind kind)
+        {
+            SyntaxToken result;
+            ReservedKeyword(kind, out result);
+            return result;
+        }
+
         protected bool ContextualKeyword(string text, out SyntaxToken result)
         {
             var token = GetToken();
@@ -221,8 +261,14 @@ namespace CSharpParser
             }
             return result;
         }
+        protected SyntaxToken ContextualKeywordOrDefault(string text)
+        {
+            SyntaxToken result;
+            ContextualKeyword(text, out result);
+            return result;
+        }
 
-
+        #region
         protected static SyntaxToken Token(SyntaxKind kind, int tokenIndex)
         {
             return SyntaxFactory.Token(kind).Attach(tokenIndex);
@@ -231,7 +277,6 @@ namespace CSharpParser
         {
             return Token(_tokenKindMap[kind], tokenIndex);
         }
-
         private static readonly Dictionary<int, SyntaxKind> _tokenKindMap = new Dictionary<int, SyntaxKind>
         {
             {'~', SyntaxKind.TildeToken },
@@ -310,6 +355,13 @@ namespace CSharpParser
             }
             return result;
         }
+        protected SyntaxToken TokenOrDefault(int kind)
+        {
+            SyntaxToken result;
+            Token(kind, out result);
+            return result;
+        }
+        #endregion
         #region list
         protected SyntaxList<T> List<T>(Creator<T> itemCreator, string itemExpectedErrorMsg = null) where T : SyntaxNode
         {
@@ -352,6 +404,48 @@ namespace CSharpParser
                 ErrorAndThrow(itemExpectedErrorMsg);
             }
             return default(SyntaxList<T>);
+        }
+        protected SyntaxTokenList TokenList(Creator<SyntaxToken> itemCreator, string itemExpectedErrorMsg = null)
+        {
+            SyntaxToken? singleItem = null;
+            List<SyntaxToken> itemList = null;
+            while (true)
+            {
+                SyntaxToken item;
+                if (itemCreator(out item))
+                {
+                    if (singleItem == null)
+                    {
+                        singleItem = item;
+                    }
+                    else
+                    {
+                        if (itemList == null)
+                        {
+                            itemList = new List<SyntaxToken>();
+                            itemList.Add(singleItem.Value);
+                        }
+                        itemList.Add(item);
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if (itemList != null)
+            {
+                return SyntaxFactory.TokenList(itemList);
+            }
+            if (singleItem != null)
+            {
+                return SyntaxFactory.TokenList(singleItem.Value);
+            }
+            if (itemExpectedErrorMsg != null)
+            {
+                ErrorAndThrow(itemExpectedErrorMsg);
+            }
+            return default(SyntaxTokenList);
         }
         protected SeparatedSyntaxList<T> SeparatedList<T>(Creator<T> itemCreator, Func<T> omittedItemCreator = null,
             bool allowTrailingSeparator = false, string itemExpectedErrorMsg = null, int separatorKind = ',') where T : SyntaxNode
@@ -490,6 +584,13 @@ namespace CSharpParser
         #endregion list
 
         #region
+
+        protected CompilationUnitSyntax CompilationUnit()
+        {
+            return SyntaxFactory.CompilationUnit(List(_ExternAliasDirectiveCreator), List(_UsingDirectiveCreator), List(_GlobalAttributeListCreator),
+                List(_NamespaceMemberCreator));
+        }
+
         protected bool ExternAliasDirective(out ExternAliasDirectiveSyntax result)
         {
             SyntaxToken externKeyword;
@@ -524,7 +625,7 @@ namespace CSharpParser
             result = null;
             return false;
         }
-        #region attribute
+        #region attributes
         protected bool GlobalAttributeList(out AttributeListSyntax result)
         {
             var openBracket = GetToken();
@@ -674,13 +775,260 @@ namespace CSharpParser
             result = null;
             return false;
         }
-        #endregion attribute
+        #endregion attributes
 
-        
-        
-        
-        
-        
+        protected bool NamespaceMember(out MemberDeclarationSyntax result)
+        {
+            var token = GetToken();
+            if (token.SyntaxKind == SyntaxKind.NamespaceKeyword)
+            {
+                ++_tokenIndex;
+                result = SyntaxFactory.NamespaceDeclaration(Token(SyntaxKind.NamespaceKeyword, token.Index), NamespaceNameExpeced(), TokenExpected('{'),
+                    List(_ExternAliasDirectiveCreator), List(_UsingDirectiveCreator), List(_NamespaceMemberCreator), TokenExpected('}'), TokenOrDefault(';'));
+                return true;
+            }
+            var attributeLists = List(_AttributeListCreator);
+            var modifier = TokenList(_ModifierCreator);
+            token = GetToken();
+            switch (token.Kind)
+            {
+                case (int)TokenKind.ReservedKeyword:
+                    switch (token.SyntaxKind)
+                    {
+                        case SyntaxKind.ClassKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.ClassDeclaration();
+                            return true;
+                        case SyntaxKind.StructKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.StructDeclaration();
+                            return true;
+                        case SyntaxKind.InterfaceKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.InterfaceDeclaration();
+                            return true;
+                        case SyntaxKind.EnumKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.EnumDeclaration();
+                            return true;
+                        case SyntaxKind.DelegateKeyword:
+                            ++_tokenIndex;
+                            result = SyntaxFactory.DelegateDeclaration();
+                            return true;
+                    }
+                    break;
+                    //case (int)TokenKind.NormalIdentifier:
+                    //    break;
+
+            }
+
+
+            result = null;
+            return false;
+        }
+        protected bool NamespaceName(out NameSyntax result)
+        {
+            IdentifierNameSyntax ins;
+            if (IdentifierName(out ins))
+            {
+                result = ins;
+                SyntaxToken dot;
+                while (Token('.', out dot))
+                {
+                    result = SyntaxFactory.QualifiedName(result, dot, IdentifierNameExpected());
+                }
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        protected NameSyntax NamespaceNameExpeced()
+        {
+            NameSyntax result;
+            if (!NamespaceName(out result))
+            {
+                ErrorAndThrow("Namespace name expected.");
+            }
+            return result;
+        }
+
+        private bool Modifier(out SyntaxToken result)
+        {
+            var token = GetToken();
+            switch (token.Kind)
+            {
+                case (int)TokenKind.ReservedKeyword:
+                    switch (token.SyntaxKind)
+                    {
+                        case SyntaxKind.PublicKeyword:
+                        case SyntaxKind.ProtectedKeyword:
+                        case SyntaxKind.InternalKeyword:
+                        case SyntaxKind.PrivateKeyword:
+                        case SyntaxKind.AbstractKeyword:
+                        case SyntaxKind.VirtualKeyword:
+                        case SyntaxKind.OverrideKeyword:
+                        case SyntaxKind.SealedKeyword:
+                        case SyntaxKind.StaticKeyword:
+                        case SyntaxKind.NewKeyword:
+                        case SyntaxKind.ReadOnlyKeyword:
+                        case SyntaxKind.ConstKeyword:
+                        case SyntaxKind.VolatileKeyword:
+                        case SyntaxKind.ExternKeyword:
+                            ++_tokenIndex;
+                            result = Token(token.SyntaxKind, token.Index);
+                            return true;
+                    }
+                    break;
+                    //case (int)TokenKind.NormalIdentifier:
+                    //    switch (token.Value)
+                    //    {
+                    //        case "partial":
+                    //            ++_tokenIndex;
+                    //            result = Token(SyntaxKind.PartialKeyword, token.Index);
+                    //            return true;
+                    //        case "async":
+                    //            ++_tokenIndex;
+                    //            result = Token(SyntaxKind.AsyncKeyword, token.Index);
+                    //            return true;
+                    //    }
+                    //    break;
+            }
+            result = default(SyntaxToken);
+            return false;
+        }
+
+        protected bool TypeParameterList(out TypeParameterListSyntax result)
+        {
+            SyntaxToken lessThan;
+            if (Token('<', out lessThan))
+            {
+                result = SyntaxFactory.TypeParameterList(lessThan, SeparatedList(_TypeParameterCreator, null, false, "Type parameter expected."),
+                    TokenExpected('>'));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private bool TypeParameter(out TypeParameterSyntax result)
+        {
+            var attributeLists = List(_AttributeListCreator);
+            SyntaxToken varianceKeyword;
+            ReservedKeyword(SyntaxKind.InKeyword, SyntaxKind.OutKeyword, out varianceKeyword);
+            SyntaxToken identifier;
+            if (Identifier(out identifier))
+            {
+                result = SyntaxFactory.TypeParameter(attributeLists, varianceKeyword, identifier);
+                return true;
+            }
+            if (attributeLists.Count > 0 || varianceKeyword.RawKind > 0)
+            {
+                IdentifierExpectedErrorAndThrow();
+            }
+            result = null;
+            return false;
+        }
+
+        protected bool BaseList(out BaseListSyntax result)
+        {
+            SyntaxToken colon;
+            if (Token(':', out colon))
+            {
+                result = SyntaxFactory.BaseList(colon, SeparatedList(_BaseTypeCreator, null, false, "Type expected."));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private bool BaseType(out BaseTypeSyntax result)
+        {
+            TypeSyntax type;
+            NameSyntax name;
+            PredefinedTypeSyntax pt;
+            if (Name(out name))
+            {
+                type = name;
+            }
+            else if (PredefinedType(out pt))
+            {
+                type = pt;
+            }
+            else
+            {
+                result = null;
+                return false;
+            }
+            result = SyntaxFactory.SimpleBaseType(type);
+            return true;
+        }
+        private bool TypeParameterConstraintClause(out TypeParameterConstraintClauseSyntax result)
+        {
+            SyntaxToken where;
+            if (ContextualKeyword("where", out where))
+            {
+                result = SyntaxFactory.TypeParameterConstraintClause(where, IdentifierNameExpected(), TokenExpected(':'),
+                    SeparatedList(_TypeParameterConstraintCreator, null, false, "Type parameter constraint expected."));
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        private bool TypeParameterConstraint(out TypeParameterConstraintSyntax result)
+        {
+            var token = GetToken();
+            switch (token.SyntaxKind)
+            {
+                case SyntaxKind.NewKeyword:
+                    ++_tokenIndex;
+                    result = SyntaxFactory.ConstructorConstraint(Token(SyntaxKind.NewKeyword, token.Index), TokenExpected('('), TokenExpected(')'));
+                    return true;
+                case SyntaxKind.ClassKeyword:
+                    ++_tokenIndex;
+                    result = SyntaxFactory.ClassOrStructConstraint(SyntaxKind.ClassConstraint, Token(SyntaxKind.ClassKeyword, token.Index));
+                    return true;
+                case SyntaxKind.StructKeyword:
+                    ++_tokenIndex;
+                    result = SyntaxFactory.ClassOrStructConstraint(SyntaxKind.StructConstraint, Token(SyntaxKind.StructKeyword, token.Index));
+                    return true;
+            }
+            TypeSyntax type;
+            if (Type(out type))
+            {
+                result = SyntaxFactory.TypeConstraint(type);
+                return true;
+            }
+            result = null;
+            return false;
+        }
+        protected bool ClassOrStructMember(out MemberDeclarationSyntax result)
+        {
+
+
+            result = null;
+            return false;
+        }
+
+        private bool ExplicitInterfaceSpecifier(out ExplicitInterfaceSpecifierSyntax result)
+        {
+            if (PeekIdentifier(0) &&
+                PeekToken(1, '.', '<', (int)TokenKind.ColonColon))
+            {
+                NameSyntax name;
+                NameStart(out name);
+                SyntaxToken dot;
+                while (Token('.', out dot))
+                {
+                    if (PeekIdentifier(0) && !PeekToken(1, '.'))
+                    {
+                        result = SyntaxFactory.ExplicitInterfaceSpecifier(name, dot);
+                        return true;
+                    }
+                    name = SyntaxFactory.QualifiedName(name, dot, SimpleNameExpected());
+                }
+            }
+            result = null;
+            return false;
+        }
+
         #endregion
 
         #region statements
@@ -2535,6 +2883,15 @@ namespace CSharpParser
             }
             result = null;
             return false;
+        }
+        protected IdentifierNameSyntax IdentifierNameExpected()
+        {
+            IdentifierNameSyntax result;
+            if (!IdentifierName(out result))
+            {
+                IdentifierExpectedErrorAndThrow();
+            }
+            return result;
         }
         #endregion types
 
