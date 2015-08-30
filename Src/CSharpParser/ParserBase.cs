@@ -40,7 +40,7 @@ namespace CSharpParser
             _AttributeArgumentCreator = AttributeArgument;
             _NamespaceMemberCreator = NamespaceMember;
 
-            _ModifierCreator = Modifier;
+            _TypeModifierCreator = TypeModifier;
             _TypeParameterCreator = TypeParameter;
             _BaseTypeCreator = BaseType;
             _TypeParameterConstraintCreator = TypeParameterConstraint;
@@ -71,7 +71,7 @@ namespace CSharpParser
         protected readonly Creator<AttributeArgumentSyntax> _AttributeArgumentCreator;
         protected readonly Creator<MemberDeclarationSyntax> _NamespaceMemberCreator;
 
-        protected readonly Creator<SyntaxToken> _ModifierCreator;
+        protected readonly Creator<SyntaxToken> _TypeModifierCreator;
         protected readonly Creator<TypeParameterSyntax> _TypeParameterCreator;
         private readonly Creator<BaseTypeSyntax> _BaseTypeCreator;
         private readonly Creator<TypeParameterConstraintSyntax> _TypeParameterConstraintCreator;
@@ -155,6 +155,20 @@ namespace CSharpParser
         protected bool PeekIdentifier(int offset)
         {
             return PeekToken(offset, (int)TokenKind.NormalIdentifier, (int)TokenKind.VerbatimIdentifier);
+        }
+        protected bool PeekReservedKeyword(int offset, SyntaxKind kind)
+        {
+            return GetToken(offset).SyntaxKind == kind;
+        }
+        protected bool PeekReservedKeyword(int offset, SyntaxKind kind1, SyntaxKind kind2)
+        {
+            var skind = GetToken(offset).SyntaxKind;
+            return skind == kind1 || skind == kind2;
+        }
+        protected bool PeekReservedKeyword(int offset, SyntaxKind kind1, SyntaxKind kind2, SyntaxKind kind3)
+        {
+            var skind = GetToken(offset).SyntaxKind;
+            return skind == kind1 || skind == kind2 || skind == kind3;
         }
 
         protected SyntaxToken Identifier(Token token)
@@ -788,7 +802,7 @@ namespace CSharpParser
                 return true;
             }
             var attributeLists = List(_AttributeListCreator);
-            var modifier = TokenList(_ModifierCreator);
+            var modifier = TokenList(_TypeModifierCreator);
             token = GetToken();
             switch (token.Kind)
             {
@@ -797,23 +811,23 @@ namespace CSharpParser
                     {
                         case SyntaxKind.ClassKeyword:
                             ++_tokenIndex;
-                            result = SyntaxFactory.ClassDeclaration();
+                            result = null;// SyntaxFactory.ClassDeclaration();
                             return true;
                         case SyntaxKind.StructKeyword:
                             ++_tokenIndex;
-                            result = SyntaxFactory.StructDeclaration();
+                            result = null;// SyntaxFactory.StructDeclaration();
                             return true;
                         case SyntaxKind.InterfaceKeyword:
                             ++_tokenIndex;
-                            result = SyntaxFactory.InterfaceDeclaration();
+                            result = null;// SyntaxFactory.InterfaceDeclaration();
                             return true;
                         case SyntaxKind.EnumKeyword:
                             ++_tokenIndex;
-                            result = SyntaxFactory.EnumDeclaration();
+                            result = null;// SyntaxFactory.EnumDeclaration();
                             return true;
                         case SyntaxKind.DelegateKeyword:
                             ++_tokenIndex;
-                            result = SyntaxFactory.DelegateDeclaration();
+                            result = null;// SyntaxFactory.DelegateDeclaration();
                             return true;
                     }
                     break;
@@ -851,8 +865,7 @@ namespace CSharpParser
             }
             return result;
         }
-
-        private bool Modifier(out SyntaxToken result)
+        private bool TypeModifier(out SyntaxToken result)
         {
             var token = GetToken();
             switch (token.Kind)
@@ -865,33 +878,33 @@ namespace CSharpParser
                         case SyntaxKind.InternalKeyword:
                         case SyntaxKind.PrivateKeyword:
                         case SyntaxKind.AbstractKeyword:
-                        case SyntaxKind.VirtualKeyword:
-                        case SyntaxKind.OverrideKeyword:
+                        //case SyntaxKind.VirtualKeyword:
+                        //case SyntaxKind.OverrideKeyword:
                         case SyntaxKind.SealedKeyword:
                         case SyntaxKind.StaticKeyword:
                         case SyntaxKind.NewKeyword:
-                        case SyntaxKind.ReadOnlyKeyword:
-                        case SyntaxKind.ConstKeyword:
-                        case SyntaxKind.VolatileKeyword:
-                        case SyntaxKind.ExternKeyword:
+                        //case SyntaxKind.ReadOnlyKeyword:
+                        //case SyntaxKind.ConstKeyword:
+                        //case SyntaxKind.VolatileKeyword:
+                        //case SyntaxKind.ExternKeyword:
                             ++_tokenIndex;
                             result = Token(token.SyntaxKind, token.Index);
                             return true;
                     }
                     break;
-                    //case (int)TokenKind.NormalIdentifier:
-                    //    switch (token.Value)
-                    //    {
-                    //        case "partial":
-                    //            ++_tokenIndex;
-                    //            result = Token(SyntaxKind.PartialKeyword, token.Index);
-                    //            return true;
-                    //        case "async":
-                    //            ++_tokenIndex;
-                    //            result = Token(SyntaxKind.AsyncKeyword, token.Index);
-                    //            return true;
-                    //    }
-                    //    break;
+                case (int)TokenKind.NormalIdentifier:
+                    switch (token.Value)
+                    {
+                        case "partial":
+                            if (PeekReservedKeyword(1, SyntaxKind.ClassKeyword, SyntaxKind.StructKeyword, SyntaxKind.InterfaceKeyword))
+                            {
+                                ++_tokenIndex;
+                                result = Token(SyntaxKind.PartialKeyword, token.Index);
+                                return true;
+                            }
+                            break;
+                    }
+                    break;
             }
             result = default(SyntaxToken);
             return false;
