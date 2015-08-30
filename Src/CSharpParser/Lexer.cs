@@ -169,11 +169,11 @@ namespace CSharpParser
             return new TextSpan(_filePath, startIndex, _totalIndex - startIndex, _tokenStartPosition,
                 new TextPosition(_lastLine, _lastColumn));
         }
-        private Token CreateToken(TokenKind tokenKind, string value = null, SyntaxKind syntaxKind = SyntaxKind.None)
+        private Token CreateToken(int tokenKind, string value = null, SyntaxKind syntaxKind = SyntaxKind.None)
         {
             _atLineHead = false;
             _gotNonTrivalToken = true;
-            return new Token((int)tokenKind, value, CreateFullTextSpan(), syntaxKind);
+            return new Token(tokenKind, value, CreateFullTextSpan(), syntaxKind);
         }
         private TextSpan CreateSingleTextSpan()
         {
@@ -844,7 +844,7 @@ namespace CSharpParser
                 else
                 {
                     var text = sb.ToString();
-                    TokenKind kind;
+                    int kind;
                     SyntaxKind syntaxKind;
                     if (isNormal)
                     {
@@ -1153,7 +1153,7 @@ namespace CSharpParser
             var nextToken = _ppExprToken.Value;
             _ppExprToken = null;
             var nextTokenKind = nextToken.Kind;
-            if (nextTokenKind != (int)TokenKind.SingleLineComment && nextTokenKind != char.MaxValue &&
+            if (nextTokenKind != TokenKind.SingleLineComment && nextTokenKind != char.MaxValue &&
                 (nextTokenKind < 0 || !SyntaxFacts.IsNewLine((char)nextTokenKind)))
             {
                 ErrorAndThrow("New line expected.", nextToken.TextSpan);
@@ -1216,7 +1216,7 @@ namespace CSharpParser
             var result = PpAndExpression();
             while (true)
             {
-                if (GetPpExprToken().TokenKind == TokenKind.BarBar)
+                if (GetPpExprToken().Kind == TokenKind.BarBar)
                 {
                     ConsumePpExprToken();
                     result = result || PpAndExpression();
@@ -1233,7 +1233,7 @@ namespace CSharpParser
             var result = PpEqualityExpression();
             while (true)
             {
-                if (GetPpExprToken().TokenKind == TokenKind.AmpersandAmpersand)
+                if (GetPpExprToken().Kind == TokenKind.AmpersandAmpersand)
                 {
                     ConsumePpExprToken();
                     result = result && PpEqualityExpression();
@@ -1250,7 +1250,7 @@ namespace CSharpParser
             var result = PpUnaryExpression();
             while (true)
             {
-                var tokenKind = GetPpExprToken().TokenKind;
+                var tokenKind = GetPpExprToken().Kind;
                 if (tokenKind == TokenKind.EqualsEquals)
                 {
                     ConsumePpExprToken();
@@ -1281,7 +1281,7 @@ namespace CSharpParser
         {
             var token = GetPpExprToken();
             var tokenKind = token.Kind;
-            if (tokenKind == (int)TokenKind.NormalIdentifier)
+            if (tokenKind == TokenKind.NormalIdentifier)
             {
                 ConsumePpExprToken();
                 var text = token.Value;
@@ -1324,7 +1324,7 @@ namespace CSharpParser
             var s = TryGetPpIdentifier(out ts);
             if (s != null)
             {
-                return new Token((int)TokenKind.NormalIdentifier, s, ts);
+                return new Token(TokenKind.NormalIdentifier, s, ts);
             }
             var ch = GetChar();
             if (ch == '|')

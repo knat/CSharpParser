@@ -3,42 +3,42 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace CSharpParser
 {
-    public enum TokenKind
+    public static class TokenKind
     {
-        SingleLineComment = -300,//internal use
-        ReservedKeyword,//class, int, true, new, etc
-        NormalIdentifier,
-        VerbatimIdentifier,// @id
-        String,
-        Char,
-        Number,
+        public const int SingleLineComment = -400;//internal use
+        public const int ReservedKeyword = -399;//class, int, true, new, etc
+        public const int NormalIdentifier = -398;
+        public const int VerbatimIdentifier = -397;// @id
+        public const int String = -396;
+        public const int Char = -395;
+        public const int Number = -394;
         //
-        BarBar,// ||
-        BarEquals,// |=
-        AmpersandAmpersand,// &&
-        AmpersandEquals,// &=
-        MinusMinus,// --
-        MinusEquals,// -=
-        MinusGreaterThan,// ->
-        PlusPlus,// ++
-        PlusEquals,// +=
-        ExclamationEquals,// !=
-        EqualsEquals,// ==
-        EqualsGreaterThan,// =>
-        LessThanEquals,// <=
-        LessThanLessThan,// <<
-        LessThanLessThanEquals,// <<=
-        GreaterThanEquals,// >=
+        public const int BarBar = -300;// ||
+        public const int BarEquals = -299;// |=
+        public const int AmpersandAmpersand = -298;// &&
+        public const int AmpersandEquals = -297;// &=
+        public const int MinusMinus = -296;// --
+        public const int MinusEquals = -295;// -=
+        public const int MinusGreaterThan = -294;// ->
+        public const int PlusPlus = -293;// ++
+        public const int PlusEquals = -292;// +=
+        public const int ExclamationEquals = -291;// !=
+        public const int EqualsEquals = -290;// ==
+        public const int EqualsGreaterThan = -289;// =>
+        public const int LessThanEquals = -288;// <=
+        public const int LessThanLessThan = -287;// <<
+        public const int LessThanLessThanEquals = -286;// <<=
+        public const int GreaterThanEquals = -285;// >=
         //GreaterThanGreaterThan,// >> (>|> not recognized by lexer)
         //GreaterThanGreaterThanEquals,// >>= (>|>= not recognized by lexer)
-        SlashEquals,// /=
-        AsteriskEquals,// *=
-        CaretEquals,// ^=
-        PercentEquals,// %=
-        QuestionQuestion,// ??
-        ColonColon,// ::
+        public const int SlashEquals = -282;// /=
+        public const int AsteriskEquals = -281;// *=
+        public const int CaretEquals = -280;// ^=
+        public const int PercentEquals = -279;// %=
+        public const int QuestionQuestion = -278;// ??
+        public const int ColonColon = -277;// ::
         //
-        //DollarDollar,// $$
+        public const int DollarDollar = -200;// $$
 
     }
     public struct Token : IEquatable<Token>
@@ -56,13 +56,7 @@ namespace CSharpParser
         public readonly TextSpan TextSpan;
         public readonly SyntaxKind SyntaxKind;//for TokenKind.ReservedKeyword
         public int Index;
-        public TokenKind TokenKind
-        {
-            get
-            {
-                return (TokenKind)Kind;
-            }
-        }
+        
         public bool IsValid
         {
             get
@@ -81,21 +75,21 @@ namespace CSharpParser
         {
             get
             {
-                return TokenKind == TokenKind.ReservedKeyword;
+                return Kind == TokenKind.ReservedKeyword;
             }
         }
         public bool IsNormalIdentifier
         {
             get
             {
-                return TokenKind == TokenKind.NormalIdentifier;
+                return Kind == TokenKind.NormalIdentifier;
             }
         }
         public bool IsVerbatimIdentifier
         {
             get
             {
-                return TokenKind == TokenKind.VerbatimIdentifier;
+                return Kind == TokenKind.VerbatimIdentifier;
             }
         }
         public bool IsIdentifier
